@@ -25,8 +25,6 @@ async def code_ask(environment_id: str, service: str, prompt: str, timeout_ms: O
 async def code_edit(environment_id: str, service: str, prompt: str, timeout_ms: Optional[int] = None) -> dict:
     """Ask aider to make a code change in a service's repository (e.g. "add a null check
     before calling axisClient.fetch()"). Returns a diff and the list of changed files. Only
-    touches the working tree — no commit is made. You must pick up the new code yourself
-    afterward: for interpreted/hot-reloading services, restart_service is enough; for
-    compiled-language services (Go/Java/Rust/C++/etc.) a plain restart keeps running the
-    stale binary/artifact, so call rebuild_service first, then restart_service."""
+    touches the working tree — no commit is made. To pick up the new code, use the documented
+    start_service(branch=...) path when a source rebuild is needed, otherwise restart_service."""
     return await execution_client.code_edit(environment_id, service, prompt, timeout_ms=timeout_ms)

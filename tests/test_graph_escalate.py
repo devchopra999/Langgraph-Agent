@@ -15,10 +15,12 @@ from langgraph.types import Command
 
 from praxis_agent.agent.decisions import (
     CaseClassification,
+    EnvironmentPlan,
     EnvironmentRef,
+    EvidenceAssessment,
+    ExperimentScenario,
     HypothesisPlan,
-    ObserveDecision,
-    VerifyDecision,
+    ScenarioOutcome,
 )
 
 
@@ -41,16 +43,28 @@ class FakeLLM:
             CaseClassification: CaseClassification(
                 case_type="general_debug", needs_scenario_iteration=False, initial_skill_hints=[], reasoning="t"
             ),
+            EnvironmentPlan: EnvironmentPlan(services=["edi"], reasoning="EDI is under test."),
             EnvironmentRef: EnvironmentRef(environment_id="env-test999"),
-            HypothesisPlan: HypothesisPlan(hypothesis="maybe X", scenario_queue=[], plan_note="try again"),
-            ObserveDecision: ObserveDecision(need_more_action=False, summary="evidence gathered"),
-            VerifyDecision: VerifyDecision(confirmed=False, reasoning="still failing", final_answer=None),
+            HypothesisPlan: HypothesisPlan(
+                hypothesis="maybe X",
+                scenario_queue=[
+                    ExperimentScenario(
+                        name="repro",
+                        setup="none",
+                        trigger="call endpoint",
+                        expected_evidence=["error log"],
+                    )
+                ],
+                plan_note="try again",
+            ),
+            ScenarioOutcome: ScenarioOutcome(passed=False, summary="still failing"),
+            EvidenceAssessment: EvidenceAssessment(next_step="replan", reasoning="still failing", final_answer=None),
         }
 
     def bind_tools(self, _tools):
         return FakeToolBound()
 
-    def with_structured_output(self, schema):
+    def with_structured_output(self, schema, **_kwargs):
         return FakeStructured(self._responses[schema])
 
 

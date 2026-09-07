@@ -74,7 +74,11 @@ def _format_args(args: dict | None) -> str:
 
 def _format_event(event_type: str, payload: dict) -> str | None:
     if event_type == "case_classified":
-        return f"[bold cyan]Classified case[/]: {_e(payload.get('case_type'))} (scenario iteration: {_e(payload.get('needs_scenario_iteration'))})"
+        return (
+            f"[bold cyan]Classified case[/]: {_e(payload.get('case_type'))} "
+            f"(workflow: {_e(payload.get('workflow'))}, scenario iteration: "
+            f"{_e(payload.get('needs_scenario_iteration'))})"
+        )
     if event_type == "hypothesis":
         return f"[bold yellow]Hypothesis[/]: {_e(payload.get('hypothesis'))}"
     if event_type == "agent_thought":

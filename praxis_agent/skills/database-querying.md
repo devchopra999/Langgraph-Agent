@@ -11,5 +11,8 @@ Use this when the bug/hypothesis involves anything related to database.
 
 ## Steps
 
-1. **Figure out the service you need to query** The service's name whose db you need to query must be given to you.
-2. **Use query_database function** Use `query_database` to run query on the database.
+1. **Discover the database service name.** Inspect the running environment first; query only the
+   service-owned mysql/mongodb instance it reports rather than assuming a shared or standalone
+   database name.
+2. **Use query_database.** Send SQL for MySQL or a JavaScript expression against `db` for
+   MongoDB. Record the relevant rows/results before and after the scenario.

@@ -1,10 +1,7 @@
-"""Pydantic schemas used with `llm.with_structured_output(...)` for deterministic routing
-decisions inside the graph (case classification, hypothesis/scenario planning, observe/verify
-judgements) — this is what makes the conditional edges real branches instead of regex-parsing
-free text out of the LLM."""
+"""Pydantic schemas for deterministic graph planning and evidence-assessment decisions."""
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -18,9 +15,23 @@ CaseType = Literal[
     "general_debug",
 ]
 
+WorkflowKind = Literal["mock_contract", "performance", "generic_experiment"]
+
 
 class CaseClassification(BaseModel):
     case_type: CaseType = Field(description="Which workflow shape best fits the developer's goal.")
+    workflow: WorkflowKind = Field(
+        default="generic_experiment",
+        description=(
+            "The execution path: mock_contract for external dependency contract testing, "
+            "performance for load/resource investigation, or generic_experiment for all other "
+            "debugging/testing cases and future workflows."
+        ),
+    )
+    fix_requested: bool = Field(
+        default=False,
+        description="True only when the developer explicitly asks to modify or fix source code.",
+    )
     needs_scenario_iteration: bool = Field(
         description=(
             "True if this goal naturally requires trying multiple scenarios in a loop "
@@ -38,31 +49,52 @@ class CaseClassification(BaseModel):
 
 class HypothesisPlan(BaseModel):
     hypothesis: str = Field(description="The current best hypothesis about the root cause / what to test.")
-    scenario_queue: list[dict[str, Any]] = Field(
+    scenario_queue: list["ExperimentScenario"] = Field(
         default_factory=list,
         description=(
-            "Only for iterator cases: a list of scenario descriptors to try one at a time, "
-            "e.g. [{\"name\": \"axis-500\", \"response_name\": \"axis-500\"}, ...] or "
-            "[{\"name\": \"concurrency-10\", \"parallelism\": 10}, ...]. Leave empty for "
-            "single-shot cases."
+            "Ordered scenarios to try one at a time. Each retains its setup, exact trigger, "
+            "and expected evidence so it can be replayed after an explicitly requested code fix."
         ),
     )
     plan_note: str = Field(description="What the very next concrete action should be, in plain language.")
 
 
-class ObserveDecision(BaseModel):
-    need_more_action: bool = Field(
-        description="True if more tool calls are needed before you have enough evidence to verify the hypothesis."
+class ExperimentScenario(BaseModel):
+    name: str = Field(description="Short, unique name for this scenario.")
+    setup: str = Field(
+        description="Required configuration, external mock setup, or load preconditions; use 'none' if not needed."
     )
-    summary: str = Field(description="Concise summary of what has been observed so far.")
+    trigger: str = Field(description="Exact API call, command, or load action to execute.")
+    expected_evidence: list[str] = Field(
+        default_factory=list,
+        description="Logs, database changes, responses, or metrics that determine the scenario outcome.",
+    )
 
 
-class VerifyDecision(BaseModel):
-    confirmed: bool = Field(description="True if the evidence gathered confirms the hypothesis / the fix works.")
-    reasoning: str = Field(description="Why, citing specific evidence (logs/db/metrics/diff observed).")
-    final_answer: Optional[str] = Field(
-        default=None, description="If confirmed, a developer-facing summary of root cause + fix + verification."
+class EnvironmentPlan(BaseModel):
+    services: list[str] = Field(
+        default_factory=list,
+        description="Minimal executor catalog services to provision. Never include an external mock server or databases.",
     )
+    branch_services: list["ServiceBranch"] = Field(
+        default_factory=list,
+        description="Services that must be started from a requested branch after the environment exists.",
+    )
+    repository: Optional["RepositoryRef"] = Field(
+        default=None,
+        description="Optional HTTPS repository URL and exact commit for executor workspace checkout.",
+    )
+    reasoning: str = Field(description="Why these services and source revisions are needed.")
+
+
+class ServiceBranch(BaseModel):
+    service: str = Field(description="Executor catalog service name.")
+    branch: str = Field(description="Requested branch to build and start for this service.")
+
+
+class RepositoryRef(BaseModel):
+    url: str = Field(description="HTTPS repository URL.")
+    commit: str = Field(description="Exact commit or revision to check out.")
 
 
 class EnvironmentRef(BaseModel):
@@ -75,3 +107,19 @@ class EnvironmentRef(BaseModel):
 class ScenarioOutcome(BaseModel):
     passed: Optional[bool] = Field(description="Whether this specific scenario behaved as expected, if determinable.")
     summary: str = Field(description="Concise evidence-based summary of what happened for this scenario.")
+
+
+class EvidenceAssessment(BaseModel):
+    next_step: Literal["next_scenario", "replan", "diagnose", "respond", "escalate"] = Field(
+        description=(
+            "next_scenario for another queued experiment, replan for a new hypothesis, diagnose "
+            "when the defect is evidenced and an explicitly requested fix should be prepared, "
+            "respond when the requested investigation is conclusively complete, or escalate when "
+            "a safe experiment requires user input."
+        )
+    )
+    reasoning: str = Field(description="Evidence-based rationale for the chosen next step.")
+    final_answer: Optional[str] = Field(
+        default=None,
+        description="Developer-facing conclusion when next_step is respond.",
+    )

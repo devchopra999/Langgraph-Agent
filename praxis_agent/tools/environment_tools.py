@@ -19,15 +19,16 @@ from praxis_agent.tools._tool_utils import instrumented
 @instrumented("create_environment")
 async def create_environment(
     services: list[str],
-    branches: Optional[dict[str, str]] = None,
+    repository: Optional[dict[str, str]] = None,
     on_progress=None,
 ) -> dict:
     """Create a new isolated Praxis Lens environment with the given catalog services
     (e.g. ["edi", "mob"]).
 
-    Always restores databases from the "baseline" snapshot. Optionally pass `branches` as a
-    mapping of service name to branch (e.g. {"mob": "feature/my-fix"}) to have the execution
-    service check out that branch for the given service(s) during environment creation.
+    Optionally pass `repository` as {"url": "https://...", "commit": "..."} when the execution
+    service should clone an exact repository revision into the environment workspace. Do not add
+    external mock-server names or standalone database instances here; provision only executor
+    catalog services needed for the experiment.
 
     This call blocks internally — polling the execution service's job status on your behalf —
     until the environment is fully ready or provisioning fails, then returns the final result
@@ -36,10 +37,7 @@ async def create_environment(
     """
     result = await execution_client.create_environment(
         services=services,
-        branches=branches,
-        database_snapshot="baseline",
-        repository=None,
-        databases=None,
+        repository=repository,
         on_progress=on_progress,
     )
     return result
@@ -57,6 +55,16 @@ async def get_environment(environment_id: str) -> dict:
 async def delete_environment(environment_id: str) -> dict:
     """Tear down an environment (docker compose down -v + workspace cleanup). Idempotent."""
     return await execution_client.delete_environment(environment_id)
+
+
+@tool
+@instrumented("get_service_endpoints")
+async def get_service_endpoints(environment_id: str) -> dict:
+    """Get the mapping of service name to its internal base URL (e.g. "auth" ->
+    "http://auth:4000") for every service in the environment. A service that isn't currently
+    running has a `null` value. Useful for discovering how services address each other or for
+    building requests that target a specific service directly."""
+    return await execution_client.get_service_endpoints(environment_id)
 
 
 @tool
@@ -81,17 +89,6 @@ async def restart_service(environment_id: str, service: str, on_progress=None) -
     """Restart a single service (e.g. to pick up a new secret, config/env var, or a rebuilt
     image after a code edit). Never recreates the rest of the environment."""
     return await execution_client.restart_service(environment_id, service, on_progress=on_progress)
-
-
-@tool
-@instrumented("rebuild_service")
-async def rebuild_service(environment_id: str, service: str, on_progress=None) -> dict:
-    """Rebuild a service's image from its current working tree (e.g. after code_edit changed
-    source in a compiled language like Go/Java/Rust/C++, where an interpreter-less restart
-    would keep running the stale binary). Blocks until the rebuild job completes, then you
-    still need to call restart_service (or start_service) to actually run the new image —
-    rebuild only recompiles/rebuilds, it does not restart the running container."""
-    return await execution_client.rebuild_service(environment_id, service, on_progress=on_progress)
 
 
 # @tool

@@ -144,26 +144,19 @@ class ExecutionClient:
     async def create_environment(
         self,
         services: list[str],
-        database_snapshot: str | None = None,
-        databases: list[dict] | None = None,
-        repository: dict | None = "",
-        branches: dict[str, str] | None = None,
+        repository: dict[str, str] | None = None,
         *,
         on_progress: ProgressCallback = None,
         wait: bool = True,
     ) -> dict:
         body: dict[str, Any] = {"services": services}
-        if database_snapshot:
-            body["databaseSnapshot"] = database_snapshot
-        # body["databases"] = []
-        # body["repository"] = {}
-        if branches:
-            body["branches"] = branches
+        if repository:
+            body["repository"] = repository
         created = await self._request("POST", "/environments", json=body)
         if not wait:
             return created
         # Provisioning several services from scratch (image pulls/builds) can take longer than
-        # a single service start/stop/restart/rebuild, so this gets its own longer timeout.
+        # a single service start/stop/restart, so this gets its own longer timeout.
         job = await self._run_job(
             created["jobId"],
             on_progress=on_progress,
@@ -210,13 +203,6 @@ class ExecutionClient:
         job = await self._run_job(restarted["jobId"], on_progress=on_progress)
         return {**restarted, "job": job}
 
-    async def rebuild_service(self, environment_id: str, service: str, *, on_progress: ProgressCallback = None, wait: bool = True) -> dict:
-        rebuilt = await self._request("POST", f"/environments/{environment_id}/services/{service}/rebuild")
-        if not wait:
-            return rebuilt
-        job = await self._run_job(rebuilt["jobId"], on_progress=on_progress)
-        return {**rebuilt, "job": job}
-
     # ------------------------------------------------------------------ #
     # repository
     # ------------------------------------------------------------------ #
@@ -247,6 +233,17 @@ class ExecutionClient:
         if since is not None:
             params["since"] = since
         return await self._request("GET", f"/environments/{environment_id}/services/{service}/logs", params=params)
+
+    async def get_service_endpoints(self, environment_id: str) -> dict:
+        return await self._request("GET", f"/environments/{environment_id}/service-endpoints")
+
+    async def get_service_env(self, environment_id: str, service: str) -> dict:
+        return await self._request("GET", f"/environments/{environment_id}/services/{service}/env")
+
+    async def update_service_env(self, environment_id: str, service: str, env: dict[str, str]) -> dict:
+        return await self._request(
+            "PUT", f"/environments/{environment_id}/services/{service}/env", json={"env": env}
+        )
 
     async def query_database(self, environment_id: str, service: str, query: str) -> dict:
         return await self._request(
@@ -288,16 +285,8 @@ class ExecutionClient:
         return await self._request("GET", f"/environments/{environment_id}/metrics", params=params)
 
     # ------------------------------------------------------------------ #
-    # config / secrets  (config doubles as env-var injection — see README note:
-    # "per-env config env file, takes effect on next restart")
+    # config (the endpoint writes a per-service env file that takes effect on restart)
     # ------------------------------------------------------------------ #
-    async def set_secret(self, environment_id: str, service: str, path: str, key: str, value: str) -> dict:
-        return await self._request(
-            "POST",
-            f"/environments/{environment_id}/services/{service}/secrets",
-            json={"path": path, "key": key, "value": value},
-        )
-
     async def set_config(self, environment_id: str, service: str, key: str, value: str) -> dict:
         return await self._request(
             "POST",
@@ -311,9 +300,12 @@ class ExecutionClient:
 
     # ------------------------------------------------------------------ #
     # orchestrator dynamic routing (zero-downtime service repointing, e.g. redirecting a
-    # dependency to the mock server or A/B-testing two versions of a real service — no
-    # restart/rebuild involved, takes effect on the very next request)
+    # dependency to another in-environment service or A/B-testing two versions of a service — no
+    # restart involved, takes effect on the very next request)
     # ------------------------------------------------------------------ #
+    async def get_orchestrator_status(self, environment_id: str) -> dict:
+        return await self._request("GET", f"/environments/{environment_id}/orchestrator")
+
     async def list_orchestrator_routes(self, environment_id: str) -> list[dict]:
         return await self._request("GET", f"/environments/{environment_id}/orchestrator/routes")
 

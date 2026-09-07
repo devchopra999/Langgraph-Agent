@@ -24,8 +24,7 @@ or lock contention under concurrent requests.
    and `wait`) that fires the same request N times in parallel against the service's own
    HTTP endpoint from inside its container (or a suitable client container). Pass it as the
    argv list to `execute_command`, e.g.
-   `["python3", "-c", "<script text>"]` or write it to a temp file first with a `sh -c`-free
-   argv sequence.
+   `["python3", "-c", "<script text>"]`; do not wrap a command string in `sh -c`.
 4. **Vary concurrency level across iterations** (e.g. 2, 10, 50 parallel requests) if the
    first level doesn't reproduce the race — this is a natural fit for the scenario-iteration
    loop (`run_scenario_loop`) rather than one-shot.
@@ -33,6 +32,7 @@ or lock contention under concurrent requests.
    result (e.g. balance decremented exactly once per valid request, no duplicate rows for the
    same idempotency key).
 6. **Check logs** for exceptions, deadlock errors, or retry logic firing.
-7. If a race is confirmed, use `code_ask`/`code_edit` to add the missing lock/transaction/
-   unique-constraint handling, then rebuild (`start_service` with the branch) and re-run the
-   same concurrency script to verify the fix holds under the same load.
+7. If a race is confirmed and the developer explicitly asked for a fix, use `code_ask`/
+   `code_edit` to add the missing lock/transaction/unique-constraint handling. Start the service
+   from the branch when a source build is needed, then re-run the same concurrency script to
+   verify the fix holds under the same load.

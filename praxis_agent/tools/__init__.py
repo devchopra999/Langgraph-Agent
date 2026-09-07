@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 from praxis_agent.tools.code_tools import code_ask, code_edit
-from praxis_agent.tools.config_tools import set_env_var, set_secret
+from praxis_agent.tools.config_tools import get_service_env, set_env_var, update_service_env
 from praxis_agent.tools.environment_tools import (
     create_environment,
     delete_environment,
     get_environment,
-    rebuild_service,
+    get_service_endpoints,
     restart_service,
     start_service,
     stop_service,
@@ -39,6 +39,7 @@ from praxis_agent.tools.mock_tools import (
 from praxis_agent.tools.orchestrator_tools import (
     bulk_set_orchestrator_routes,
     get_orchestrator_route,
+    get_orchestrator_status,
     list_orchestrator_routes,
     set_orchestrator_route,
 )
@@ -51,7 +52,17 @@ ENVIRONMENT_TOOLS = [
     start_service,
     stop_service,
     restart_service,
-    rebuild_service,
+    get_service_endpoints,
+]
+
+PROVISION_TOOLS = [create_environment, start_service]
+
+DISCOVERY_TOOLS = [
+    get_environment,
+    get_service_endpoints,
+    get_service_env,
+    get_orchestrator_status,
+    list_orchestrator_routes,
 ]
 
 INSPECTION_TOOLS = [
@@ -64,7 +75,7 @@ INSPECTION_TOOLS = [
 
 CODE_TOOLS = [code_ask, code_edit]
 
-CONFIG_TOOLS = [set_secret, set_env_var]
+CONFIG_TOOLS = [get_service_env, update_service_env, set_env_var]
 
 MOCK_TOOLS = [
     create_mock_response,
@@ -87,6 +98,7 @@ MOCK_TOOLS = [
 SKILL_TOOLS = [list_skills, load_skill]
 
 ORCHESTRATOR_TOOLS = [
+    get_orchestrator_status,
     list_orchestrator_routes,
     get_orchestrator_route,
     set_orchestrator_route,
@@ -94,3 +106,19 @@ ORCHESTRATOR_TOOLS = [
 ]
 
 ALL_TOOLS = ENVIRONMENT_TOOLS + INSPECTION_TOOLS + CODE_TOOLS + CONFIG_TOOLS + MOCK_TOOLS + SKILL_TOOLS + ORCHESTRATOR_TOOLS
+
+# Nodes use these focused collections rather than granting every capability in every phase.
+EVIDENCE_TOOLS = [get_logs, query_database, get_service_metrics, get_environment_metrics, get_environment]
+EXPERIMENT_TOOLS = (
+    [start_service, stop_service, restart_service]
+    + INSPECTION_TOOLS
+    + [code_ask]
+    + CONFIG_TOOLS
+    + ORCHESTRATOR_TOOLS
+    + SKILL_TOOLS
+)
+MOCK_CONTRACT_TOOLS = EXPERIMENT_TOOLS + MOCK_TOOLS
+PERFORMANCE_TOOLS = EXPERIMENT_TOOLS
+DIAGNOSIS_TOOLS = [code_ask]
+EDIT_TOOLS = [code_edit]
+DEPLOY_TOOLS = [start_service, restart_service]

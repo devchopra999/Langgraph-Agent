@@ -1,6 +1,8 @@
 langgraph>=0.2.60
 langchain>=0.3.13
 langchain-openai>=0.2.14
+langchain-aws>=0.2.14
+boto3>=1.34.0
 langchain-core>=0.3.28
 httpx>=0.27.2
 requests>=2.32.3

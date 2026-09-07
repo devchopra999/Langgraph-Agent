@@ -1,9 +1,10 @@
 """Reusable ReAct-style tool-calling micro-loop.
 
-Several graph nodes (`provision_environment`, `act`, each `run_scenario_loop` iteration) all
-need the same shape of work: "given the conversation so far plus a specific instruction, let
-the LLM call tools as many times as it needs (bounded), then stop once it responds with plain
-text." This helper implements that once so the graph nodes stay small and declarative.
+Several graph nodes (provisioning, discovery, specialist scenario execution, evidence
+collection, and remediation) need the same shape of work: "given the conversation so far plus a
+specific instruction, let the LLM call a phase-limited set of tools (bounded), then stop once it
+responds with plain text." This helper implements that once so the graph nodes stay small and
+declarative.
 """
 from __future__ import annotations
 

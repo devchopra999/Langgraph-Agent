@@ -3,7 +3,7 @@
 The reasoning/orchestration layer for Praxis Lens. It talks exclusively over HTTP to:
 
 - the **Execution Service** (Node.js, e.g. `http://localhost:3000`) — environments, services,
-  logs, databases, metrics, secrets/config, and aider-backed code Q&A/edit
+  logs, service-owned databases, metrics, configuration, and aider-backed code Q&A/edit
 - the **Mock Server** (URL supplied at runtime) — mocked dependency responses for
   scenario-based testing
 
@@ -17,14 +17,14 @@ praxis_agent/
   clients/
     execution_client.py       # typed async wrapper over every execution-service endpoint,
                                # with transparent job polling for async operations
-    mock_server_client.py      # typed async wrapper over the (assumed) mock-server contract
-  tools/                       # one @tool per client method, grouped by domain
+    mock_server_client.py      # typed async wrapper over the external mock-server contract
+  tools/                       # focused @tool collections grouped by domain
     environment_tools.py
     inspection_tools.py
     code_tools.py
     config_tools.py
     mock_tools.py
-    orchestrator_tools.py      # zero-downtime route repointing (e.g. -> mock server, A/B)
+    orchestrator_tools.py      # in-environment route inspection/repointing
     skill_tools.py             # list_skills() / load_skill(name)
   skills/                       # markdown playbooks + service notes, loaded on demand
   agent/
@@ -48,32 +48,29 @@ tests/                           # offline smoke tests (mocked LLM, no network r
 ## Graph design
 
 ```
-START -> classify_case -> provision_environment -> hypothesize -> scenario_router
-                                                                        |
-                        +-----------------------------------------------+
-                        |                                               |
-              run_scenario_loop (self-loop while                       act
-              scenario_queue non-empty; mock-based/                     |
-              concurrency/A-B testing cases)                            |
-                        |                                               |
-                        +--------------------> observe <-----------------+
-                                                  |  (need_more_action -> act)
-                                                  v
-                                               verify
-                                     confirmed |   | denied + budget left -> hypothesize (loop)
-                                               v   v denied + budget exhausted
-                                            respond   escalate --(interrupt, human resume)--> hypothesize
-                                             (END)
+START -> classify_case -> load_relevant_playbook -> scope_environment
+      -> provision_environment -> discover_environment -> plan_experiments
+      -> workflow_router
+           | mock-contract workflow
+           | performance workflow
+           + generic experiment workflow (fallback)
+      -> collect_evidence -> assess_evidence
+           | queued scenario/new hypothesis -> plan_experiments
+           | explicit fix requested -> diagnose -> edit -> deploy -> replay scenario
+           | conclusive -> respond -> END
+           + missing detail/budget exhausted -> escalate --(interrupt, human resume)--> plan_experiments
 ```
 
-- **Case-based branching**: `classify_case` decides the workflow shape (mock-based testing,
-  concurrency testing, performance testing, production repro, hotfix testing, feature-branch
-  testing, general debug) and whether it needs scenario iteration.
-- **Real cycles, not a flat tool loop**: `run_scenario_loop` self-loops draining a queue of
-  scenarios (mock response combos, concurrency levels, ...); the `hypothesize -> act/scenario
-  loop -> observe -> verify` cycle repeats (bounded by `PRAXIS_MAX_ITERATIONS`) until the
-  hypothesis is confirmed or the budget is exhausted, at which point `escalate` uses
-  LangGraph's `interrupt()` to hand control back to a human instead of failing silently.
+- **Specialists plus fallback**: mock-contract and performance requests use purpose-built,
+  phase-limited tool paths. Replication, concurrency, hotfix, feature-branch, configuration,
+  integration, and new future cases use the generic experiment workflow rather than failing
+  classification.
+- **Discovery before experiments**: after provisioning, the agent reads live service state,
+  internal endpoints (including `toolbox`), orchestrator state/routes, and target-service env.
+  It then plans replayable scenarios with explicit triggers and expected evidence.
+- **Evidence-first remediation**: source editing is unavailable during reproduction and
+  observation. It is permitted only when the developer explicitly requests a change, evidence
+  supports the diagnosis, and the post-edit workflow can replay the same scenario.
 - **Skills are tools**, not silent RAG — the agent calls `list_skills()`/`load_skill(name)`
   itself when it judges it needs a playbook or service-specific domain notes.
 - State is checkpointed (in-memory `MemorySaver`, keyed by session id) so follow-up messages
@@ -83,7 +80,7 @@ START -> classify_case -> provision_environment -> hypothesize -> scenario_route
 
 ```bash
 cp .env.example .env        # fill in OPENAI_API_KEY; EXECUTION_SERVICE_URL defaults to
-                             # http://localhost:3000; set MOCK_SERVER_URL for mock-based
+                             # http://localhost:3000; set MOCK_SERVER_URL for mock-contract
                              # testing
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -121,24 +118,30 @@ tail -f logs/api_calls.log | python -m json.tool --json-lines   # or just `tail 
 This is independent of the SSE event stream — useful when you want to see the exact wire
 traffic rather than the agent's higher-level tool-call view.
 
-## Assumptions to revisit once real details are available
+## Runtime boundaries
 
-- **Mock Server API contract** (`clients/mock_server_client.py`) is built against the
-  described-but-unconfirmed contract: response groups -> responses -> mocks, all by id, with
-  list/get-by-id lookups. Isolated in one file so it's a small change once real docs exist.
-- **Env-var injection on the execution service**: no dedicated endpoint exists yet, so
-  `set_env_var` reuses the documented `POST /environments/:id/services/:service/config`
-  endpoint (which already writes a per-service env file consumed on restart).
+- The **Mock Server is external** to every executor environment and is reached only through the
+  existing mock tools. The agent points a wrapper service at its configured external domain with
+  `get_service_env`/`update_service_env` (or the single-key `set_env_var`) and restarts that
+  wrapper. It never provisions the Mock Server or targets it through executor routes.
+- The executor provisions only catalog services required for the experiment. The agent never
+  asks it to create standalone/independent databases; it discovers and queries service-owned
+  database instances from the live environment.
+- The agent can inspect a service's complete env file and merge values through the documented
+  `/env` endpoints. `set_env_var` remains a single-key wrapper for the documented `/config`
+  endpoint.
 
 ## Tests
 
 ```bash
 python tests/test_routers.py            # pure routing-function unit tests
-python tests/test_graph_happy_path.py    # mocked LLM: single-shot confirm path
-python tests/test_graph_scenario_loop.py # mocked LLM: scenario-iteration path (3 scenarios)
+python tests/test_execution_client.py    # mocked HTTP: supported executor request paths
+python tests/test_graph_happy_path.py    # mocked LLM: discovery -> generic evidence path
+python tests/test_graph_scenario_loop.py # mocked LLM: external mock-contract scenarios
+python tests/test_graph_explicit_fix.py  # mocked LLM: explicit fix -> deploy -> identical replay
 python tests/test_graph_escalate.py      # mocked LLM: budget-exhausted -> interrupt -> resume
 ```
 
-All four are self-contained (fake LLM, no live OpenAI/execution-service calls needed) and
-pass as of this writing. A real end-to-end run additionally needs a valid `OPENAI_API_KEY`
+All six are self-contained (fake LLM/mock HTTP, no live OpenAI/execution-service calls needed).
+A real end-to-end run additionally needs a valid `OPENAI_API_KEY`
 and the execution service reachable at `EXECUTION_SERVICE_URL`.

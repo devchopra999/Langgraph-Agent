@@ -1,7 +1,4 @@
-"""End-to-end smoke test of the compiled graph with a fully mocked LLM and mocked tools —
-validates the classify -> provision -> hypothesize -> act -> observe -> verify -> respond
-wiring works without needing a real OpenAI key or a live execution service.
-"""
+"""End-to-end smoke test for the generic evidence-first workflow."""
 import asyncio
 import sys
 from pathlib import Path
@@ -13,10 +10,12 @@ from langchain_core.messages import AIMessage
 
 from praxis_agent.agent.decisions import (
     CaseClassification,
+    EnvironmentPlan,
     EnvironmentRef,
+    EvidenceAssessment,
+    ExperimentScenario,
     HypothesisPlan,
-    ObserveDecision,
-    VerifyDecision,
+    ScenarioOutcome,
 )
 
 
@@ -46,18 +45,30 @@ class FakeLLM:
                 initial_skill_hints=[],
                 reasoning="test",
             ),
+            EnvironmentPlan: EnvironmentPlan(services=["edi"], reasoning="EDI is under test."),
             EnvironmentRef: EnvironmentRef(environment_id="env-test123"),
             HypothesisPlan: HypothesisPlan(
-                hypothesis="the bug is X", scenario_queue=[], plan_note="do the thing"
+                hypothesis="the bug is X",
+                scenario_queue=[
+                    ExperimentScenario(
+                        name="reproduce",
+                        setup="none",
+                        trigger="call the EDI endpoint",
+                        expected_evidence=["an EDI error log"],
+                    )
+                ],
+                plan_note="run the reported request",
             ),
-            ObserveDecision: ObserveDecision(need_more_action=False, summary="enough evidence"),
-            VerifyDecision: VerifyDecision(confirmed=True, reasoning="logs confirm it", final_answer="Fixed X."),
+            ScenarioOutcome: ScenarioOutcome(passed=True, summary="the requested evidence was collected"),
+            EvidenceAssessment: EvidenceAssessment(
+                next_step="respond", reasoning="logs confirm it", final_answer="Issue replicated."
+            ),
         }
 
     def bind_tools(self, _tools):
         return FakeToolBound()
 
-    def with_structured_output(self, schema):
+    def with_structured_output(self, schema, **_kwargs):
         return FakeStructured(self._responses[schema])
 
 
@@ -76,8 +87,13 @@ async def main():
     assert result["done"] is True, result
     assert result["verified"] is True
     assert result["environment_id"] == "env-test123"
-    assert "Fixed X." in (result.get("final_answer") or "")
-    print("PASS: happy path graph run reached respond/END with expected state")
+    assert "Issue replicated." in (result.get("final_answer") or "")
+    assert len(result["scenario_results"]) == 1
+    contents = [str(message.content) for message in result["messages"]]
+    discovery_index = next(index for index, content in enumerate(contents) if "read-only runtime inventory" in content)
+    experiment_index = next(index for index, content in enumerate(contents) if "generic experiment scenario" in content)
+    assert discovery_index < experiment_index
+    print("PASS: generic evidence-first graph run reached respond/END with expected state")
     print({k: result[k] for k in ("case_type", "hypothesis", "environment_id", "verified", "final_answer")})
 
 

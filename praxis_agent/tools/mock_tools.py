@@ -7,7 +7,7 @@ Typical loop for a brand-new mocked endpoint:
   get_mock_response (to find the new doc's _id, since create doesn't return it) ->
   create_mock_api (registers endpoint+method, points conditions._id at that response doc;
   this restarts the mock server process ~5s later) -> wait_for_mock_server_restart ->
-  call_mock_endpoint to exercise it -> set_env_var/set_secret + restart_service on the
+  call_mock_endpoint to exercise it -> update_service_env/set_env_var + restart_service on the
   dependent service to point it at the mock server -> execute_command/get_logs/
   query_database to verify behavior.
 

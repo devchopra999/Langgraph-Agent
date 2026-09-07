@@ -1,7 +1,6 @@
 """Shared agent state for the Praxis Lens LangGraph graph."""
 from __future__ import annotations
 
-import operator
 from typing import Annotated, Any, Optional, TypedDict
 
 from langchain_core.messages import BaseMessage
@@ -16,7 +15,7 @@ class ScenarioResult(TypedDict, total=False):
 
 class AgentState(TypedDict, total=False):
     # Conversation — shared across every node so the LLM keeps full context of what's
-    # happened (classification, hypotheses, tool calls, observations, verifications).
+    # happened (classification, hypotheses, tool calls, evidence, and assessments).
     messages: Annotated[list[BaseMessage], add_messages]
 
     # Session bookkeeping
@@ -26,23 +25,29 @@ class AgentState(TypedDict, total=False):
 
     # classify_case output
     case_type: Optional[str]
+    workflow: str
+    fix_requested: bool
     skill_hints: list[str]
     needs_scenario_iteration: bool
 
-    # hypothesize output
+    # environment planning/discovery output
+    environment_plan: dict[str, Any]
+
+    # experiment-planning output
     hypothesis: Optional[str]
     scenario_queue: list[dict[str, Any]]
-    scenario_results: Annotated[list[dict[str, Any]], operator.add]
+    active_scenario: dict[str, Any]
+    scenario_results: list[dict[str, Any]]
 
     # experiment loop guards
     iteration_count: int
     max_iterations: int
-    observe_attempts: int
+    remediation_attempted: bool
 
-    # observe/verify outputs
-    need_more_action: bool
+    # evidence assessment outputs
     verified: Optional[bool]
     verify_reasoning: Optional[str]
+    assessment_next_step: Optional[str]
 
     # terminal
     done: bool

@@ -15,10 +15,18 @@ MAX_RESULT_CHARS = 8000
 
 
 def _summarize(value: Any) -> str:
-    try:
-        text = json.dumps(value, default=str)
-    except TypeError:
-        text = str(value)
+    # Plain strings (e.g. load_skill's raw markdown body) are passed through as-is rather
+    # than JSON-encoded — json.dumps would wrap them in quotes and escape every newline,
+    # turning readable prose into a mangled one-line literal for no benefit. Everything else
+    # (dicts/lists from the Execution Service etc.) still gets JSON-serialized so the LLM sees
+    # structured data.
+    if isinstance(value, str):
+        text = value
+    else:
+        try:
+            text = json.dumps(value, default=str)
+        except TypeError:
+            text = str(value)
     if len(text) > MAX_RESULT_CHARS:
         return text[:MAX_RESULT_CHARS] + f"... <truncated {len(text) - MAX_RESULT_CHARS} chars>"
     return text

@@ -44,9 +44,9 @@ async def get_service_metrics(
     environment_id: str, service: str, duration: Optional[int] = None, interval: Optional[int] = None
 ) -> dict:
     """Sample CPU/memory usage for one service. Omit `duration` for an instant single-sample
-    read, or set duration (max 120s) + interval (min 1s) to get a time series — useful for
+    read, or set duration (max 60s) + interval (min 1s) to get a time series — useful for
     performance/soak testing to see whether CPU/memory trends up under load.
-    don't set duration > 180 or the request will timeout
+    don't set duration > 60 or the request will timeout
     """
     return await execution_client.get_service_metrics(environment_id, service, duration=duration, interval=interval)
 
