@@ -284,6 +284,36 @@ class ExecutionClient:
             params["interval"] = interval
         return await self._request("GET", f"/environments/{environment_id}/metrics", params=params)
 
+    async def run_load_test(
+        self,
+        environment_id: str,
+        service: str,
+        endpoint: str,
+        method: str,
+        headers: dict[str, str],
+        body: dict[str, Any],
+        hit_count: int,
+        timeout: int,
+        *,
+        on_progress: ProgressCallback = None,
+    ) -> dict:
+        if timeout > 60:
+            raise ValueError("Load-test per-request timeout cannot exceed 60 seconds")
+        queued = await self._request(
+            "POST",
+            f"/environments/{environment_id}/services/{service}/load-test",
+            json={
+                "endpoint": endpoint,
+                "method": method,
+                "headers": headers,
+                "body": body,
+                "hitCount": hit_count,
+                "timeout": timeout,
+            },
+        )
+        job = await self._run_job(queued["jobId"], on_progress=on_progress)
+        return {**queued, "job": job}
+
     # ------------------------------------------------------------------ #
     # config (the endpoint writes a per-service env file that takes effect on restart)
     # ------------------------------------------------------------------ #

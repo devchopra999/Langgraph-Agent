@@ -55,6 +55,9 @@ class Settings:
     # Experiment loop guard rails
     max_iterations: int = _int_env("PRAXIS_MAX_ITERATIONS", 6)
 
+    # Execution trace reports
+    report_dir: str = os.environ.get("PRAXIS_REPORT_DIR", "logs/reports")
+
     # Execution-service async job polling
     job_poll_interval_sec: float = float(os.environ.get("PRAXIS_JOB_POLL_INTERVAL_SEC", "2"))
     job_poll_timeout_sec: float = float(os.environ.get("PRAXIS_JOB_POLL_TIMEOUT_SEC", "300"))

@@ -328,10 +328,11 @@ async def performance_workflow(state: AgentState) -> dict:
         f"Environment id: {state.get('environment_id')}\n"
         f"Hypothesis: {state.get('hypothesis')}\n"
         f"Execute this performance scenario exactly: {scenario}\n"
-        "Use discovered internal endpoints and preferably the toolbox container for bounded load. "
-        "Do not guess service ports or use localhost to reach another container. Establish the "
-        "specified load; the next node will capture comparable metrics and other evidence. Do not "
-        "call code_edit."
+        "Use run_load_test for bounded concurrent load against discovered internal service "
+        "endpoints; specify a service-relative path, request inputs, hit count, and a per-request "
+        "timeout no greater than 60 seconds. Do not guess service ports or use localhost to reach "
+        "another container. Establish the specified load; the next node will capture comparable "
+        "metrics and other evidence. Do not call code_edit."
     )
     return await _run_next_scenario(state, instruction, PERFORMANCE_TOOLS)
 

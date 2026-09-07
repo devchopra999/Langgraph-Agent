@@ -10,7 +10,7 @@ from praxis_agent.agent.graph import (
     provision_router,
     _workflow_node,
 )
-from praxis_agent.tools import EDIT_TOOLS, EXPERIMENT_TOOLS, MOCK_CONTRACT_TOOLS, PERFORMANCE_TOOLS
+from praxis_agent.tools import ALL_TOOLS, EDIT_TOOLS, EXPERIMENT_TOOLS, MOCK_CONTRACT_TOOLS, PERFORMANCE_TOOLS
 
 
 def test_workflow_router_selects_specialists_and_generic_fallback():
@@ -50,6 +50,13 @@ def test_experiment_workflows_cannot_edit_source():
     assert EDIT_TOOLS[0].name == "code_edit"
     for tools in (EXPERIMENT_TOOLS, MOCK_CONTRACT_TOOLS, PERFORMANCE_TOOLS):
         assert "code_edit" not in {tool.name for tool in tools}
+
+
+def test_load_test_is_available_only_to_performance_workflow():
+    assert "run_load_test" in {tool.name for tool in ALL_TOOLS}
+    assert "run_load_test" in {tool.name for tool in PERFORMANCE_TOOLS}
+    assert "run_load_test" not in {tool.name for tool in EXPERIMENT_TOOLS}
+    assert "run_load_test" not in {tool.name for tool in MOCK_CONTRACT_TOOLS}
 
 
 def test_assessment_router_escalates_at_budget_limit():

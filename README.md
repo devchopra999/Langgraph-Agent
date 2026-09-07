@@ -36,7 +36,8 @@ praxis_agent/
     graph.py                     # the compiled LangGraph StateGraph (see below)
     events.py                    # per-session SSE event bus
     context.py                   # contextvar plumbing so tools can publish events
-    runner.py                    # runs the graph per session, handles interrupt/resume
+    runner.py                    # runs the graph per session, handles interrupt/resume/stop
+    reports.py                   # deterministic Markdown and JSON execution-trace reports
   api/
     server.py                   # FastAPI: /sessions, /sessions/:id/message, /sessions/:id/events (SSE)
   tui/
@@ -95,15 +96,33 @@ python -m praxis_agent.tui.main --goal "Reproduce the intermittent EDI/Axis fail
 python -m praxis_agent.tui.main --session-id session-xxxxxxxx
 ```
 
+Press `Ctrl+C` in the TUI to stop the active agent run. The TUI requests server-side
+cancellation, waits for the partial report, then displays it.
+
 ### API
 
 - `POST /sessions {"goal": "..."}` -> `{sessionId, status}` — starts a run in the background
 - `POST /sessions/:id/message {"text": "..."}` -> follow-up turn (resumes an `interrupt` if
   the agent escalated and is waiting for human input, otherwise a new conversational turn)
+- `POST /sessions/:id/stop` -> stops the active session (or closes a session waiting for input)
 - `GET /sessions/:id/events` -> SSE stream of structured events (`case_classified`,
   `hypothesis`, `tool_call_started/completed/failed`, `job_progress`, `skill_loaded`,
-  `scenario_started/completed`, `verify_result`, `escalation`, `run_completed`, `error`)
-- `GET /sessions/:id` -> current status (`running` / `waiting_input` / `completed` / `failed`)
+  `scenario_started/completed`, `verify_result`, `escalation`, `run_completed`, `run_stopped`,
+  `report_ready`, `error`)
+- `GET /sessions/:id/report?format=markdown|json` -> the latest redacted report artifact
+- `GET /sessions/:id` -> current status (`running` / `stopping` / `waiting_input` / `completed`
+  / `stopped` / `failed`)
+
+## Execution reports
+
+Every completed, failed, stopped, and waiting-for-input run creates a readable Markdown
+timeline and a machine-readable JSON trace in `logs/reports/` by default. Set
+`PRAXIS_REPORT_DIR` to change the destination. The report links the agent's recorded
+reason, tool action and arguments, complete captured tool response, and the next observed
+agent decision. Sensitive-looking configuration values (such as tokens, passwords, API
+keys, and secrets) are redacted in both artifacts. These reports record concise,
+agent-provided rationales and structured decisions; they do not generate or infer hidden
+chain-of-thought.
 
 ## API call logging
 

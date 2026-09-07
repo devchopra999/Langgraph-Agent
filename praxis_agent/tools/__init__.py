@@ -18,6 +18,7 @@ from praxis_agent.tools.inspection_tools import (
     get_logs,
     get_service_metrics,
     query_database,
+    run_load_test,
 )
 from praxis_agent.tools.mock_tools import (
     call_mock_endpoint,
@@ -105,7 +106,16 @@ ORCHESTRATOR_TOOLS = [
     bulk_set_orchestrator_routes,
 ]
 
-ALL_TOOLS = ENVIRONMENT_TOOLS + INSPECTION_TOOLS + CODE_TOOLS + CONFIG_TOOLS + MOCK_TOOLS + SKILL_TOOLS + ORCHESTRATOR_TOOLS
+ALL_TOOLS = (
+    ENVIRONMENT_TOOLS
+    + INSPECTION_TOOLS
+    + [run_load_test]
+    + CODE_TOOLS
+    + CONFIG_TOOLS
+    + MOCK_TOOLS
+    + SKILL_TOOLS
+    + ORCHESTRATOR_TOOLS
+)
 
 # Nodes use these focused collections rather than granting every capability in every phase.
 EVIDENCE_TOOLS = [get_logs, query_database, get_service_metrics, get_environment_metrics, get_environment]
@@ -118,7 +128,7 @@ EXPERIMENT_TOOLS = (
     + SKILL_TOOLS
 )
 MOCK_CONTRACT_TOOLS = EXPERIMENT_TOOLS + MOCK_TOOLS
-PERFORMANCE_TOOLS = EXPERIMENT_TOOLS
+PERFORMANCE_TOOLS = EXPERIMENT_TOOLS + [run_load_test]
 DIAGNOSIS_TOOLS = [code_ask]
 EDIT_TOOLS = [code_edit]
 DEPLOY_TOOLS = [start_service, restart_service]

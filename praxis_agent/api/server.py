@@ -11,13 +11,15 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from praxis_agent.agent.events import new_id, registry
-from praxis_agent.agent.runner import send_message, sessions, start_session
+from praxis_agent.agent.runner import send_message, sessions, start_session, stop_session
 
 app = FastAPI(title="Praxis Lens Agent")
 
@@ -34,7 +36,9 @@ class MessageRequest(BaseModel):
 async def create_session(req: CreateSessionRequest):
     session_id = new_id("session")
     registry.get_or_create(session_id)
-    asyncio.create_task(start_session(session_id, req.goal))
+    sessions.create(session_id, req.goal)
+    task = asyncio.create_task(start_session(session_id, req.goal))
+    sessions.set_task(session_id, task)
     return {"sessionId": session_id, "status": "running"}
 
 
@@ -44,8 +48,17 @@ async def post_message(session_id: str, req: MessageRequest):
     if info is None:
         raise HTTPException(status_code=404, detail="session not found")
     registry.get_or_create(session_id)
-    asyncio.create_task(send_message(session_id, req.text))
+    task = asyncio.create_task(send_message(session_id, req.text))
+    sessions.set_task(session_id, task)
     return {"sessionId": session_id, "status": "running"}
+
+
+@app.post("/sessions/{session_id}/stop")
+async def post_stop_session(session_id: str):
+    info = stop_session(session_id)
+    if info is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"sessionId": session_id, "status": info.status}
 
 
 @app.get("/sessions/{session_id}")
@@ -54,6 +67,20 @@ async def get_session(session_id: str):
     if info is None:
         raise HTTPException(status_code=404, detail="session not found")
     return {"sessionId": session_id, "status": info.status, "goal": info.goal, "error": info.error}
+
+
+@app.get("/sessions/{session_id}/report")
+async def get_session_report(session_id: str, format: Literal["markdown", "json"] = "markdown"):
+    info = sessions.get(session_id)
+    if info is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    if info.report is None:
+        raise HTTPException(status_code=409, detail="report is not available until the current run stops")
+    path = info.report.markdown_path if format == "markdown" else info.report.json_path
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="report artifact is unavailable")
+    media_type = "text/markdown; charset=utf-8" if format == "markdown" else "application/json"
+    return FileResponse(path, media_type=media_type, filename=path.name)
 
 
 @app.get("/sessions/{session_id}/events")

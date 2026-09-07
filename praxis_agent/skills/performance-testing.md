@@ -12,8 +12,11 @@ detect a memory leak.
 
 ## Steps
 
-1. **Establish load.** Trigger repeated/sustained requests via `execute_command` (a loop or a
-   simple generated load script), ideally the same one used for concurrency testing.
+1. **Establish load.** Use `run_load_test` for bounded concurrent requests to a discovered
+   service-relative endpoint. Set the request method, headers/body, hit count, and per-request
+   timeout (maximum 60 seconds). Its completed result records success/failure counts,
+   status-code distribution, and latency min/max/average; repeat the same request after a fix for
+   a comparable result.
 2. **Sample metrics across the whole environment**, not just one service —
    `get_environment_metrics(environment_id, duration=50, interval=5)` (max duration 120s,
    min interval 1s per call; call it multiple times back-to-back for a longer soak profile)

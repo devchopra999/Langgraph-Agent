@@ -7,6 +7,7 @@ endpoint simply subscribes to a session's queue and forwards everything it recei
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -24,27 +25,50 @@ class EventBus:
     session_id: str
     _subscribers: list[asyncio.Queue] = field(default_factory=list)
     _history: list[dict[str, Any]] = field(default_factory=list)
+    _trace_history: list[dict[str, Any]] = field(default_factory=list)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def subscribe(self) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue()
-        for evt in self._history:
-            q.put_nowait(evt)
-        self._subscribers.append(q)
+        with self._lock:
+            for evt in self._history:
+                q.put_nowait(evt)
+            self._subscribers.append(q)
         return q
 
     def unsubscribe(self, q: asyncio.Queue) -> None:
-        if q in self._subscribers:
-            self._subscribers.remove(q)
+        with self._lock:
+            if q in self._subscribers:
+                self._subscribers.remove(q)
 
-    def publish(self, event_type: str, payload: dict[str, Any] | None = None) -> dict:
+    def history(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return list(self._history)
+
+    def trace_history(self) -> list[dict[str, Any]]:
+        """Return the report-only trace, which may include full private tool output."""
+        with self._lock:
+            return list(self._trace_history)
+
+    def publish(
+        self,
+        event_type: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        trace_payload: dict[str, Any] | None = None,
+    ) -> dict:
         event = {
             "type": event_type,
             "sessionId": self.session_id,
             "ts": time.time(),
             "payload": payload or {},
         }
-        self._history.append(event)
-        for q in list(self._subscribers):
+        trace_event = {**event, "payload": trace_payload if trace_payload is not None else event["payload"]}
+        with self._lock:
+            self._history.append(event)
+            self._trace_history.append(trace_event)
+            subscribers = list(self._subscribers)
+        for q in subscribers:
             q.put_nowait(event)
         return event
 
@@ -82,4 +106,6 @@ class EventType:
     VERIFY_RESULT = "verify_result"
     ESCALATION = "escalation"
     RUN_COMPLETED = "run_completed"
+    RUN_STOPPED = "run_stopped"
+    REPORT_READY = "report_ready"
     ERROR = "error"

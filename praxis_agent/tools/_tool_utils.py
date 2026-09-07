@@ -84,12 +84,24 @@ def instrumented(tool_name: str) -> Callable:
                     bus.publish(
                         EventType.TOOL_CALL_FAILED,
                         {"tool": tool_name, "args": call_args, "error": str(exc), "reason": reason},
+                        trace_payload={
+                            "tool": tool_name,
+                            "args": call_args,
+                            "error": error_payload,
+                            "reason": reason,
+                        },
                     )
                 return error_summary
             if bus:
                 bus.publish(
                     EventType.TOOL_CALL_COMPLETED,
                     {"tool": tool_name, "args": call_args, "result_preview": _summarize(result)[:1000], "reason": reason},
+                    trace_payload={
+                        "tool": tool_name,
+                        "args": call_args,
+                        "result": result,
+                        "reason": reason,
+                    },
                 )
             return _summarize(result)
 

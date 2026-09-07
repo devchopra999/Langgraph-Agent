@@ -18,8 +18,10 @@ import time
 import requests
 import sseclient
 from rich.console import Group
+from rich.console import Console
 from rich.live import Live
 from rich.markup import escape
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.text import Text
@@ -34,6 +36,7 @@ class TuiState:
         self.completed_steps: list[str] = []
         self.current_action: str = "Initializing..."
         self.error: str | None = None
+        self.report_ready = False
         self.lock = threading.Lock()
 
     def add_line(self, line: str) -> None:
@@ -161,12 +164,21 @@ def stream_events(base_url: str, state: TuiState) -> None:
                 if event_type == "run_completed":
                     state.status = "completed"
                     state.set_current("Done.")
+                if event_type == "run_stopped":
+                    state.status = "stopped"
+                    state.set_current("Stopped. Generating partial report...")
                 if event_type == "escalation":
                     state.status = "waiting_input"
                     state.set_current("Waiting for your input (reply via the API /message endpoint)...")
                 if event_type == "error":
                     state.status = "failed"
                     state.set_current(f"Failed: {payload.get('error', 'unknown error')}")
+                if event_type == "report_ready":
+                    state.report_ready = True
+                    state.status = payload.get("outcome", state.status)
+                    state.set_current("Report ready.")
+                    resp.close()
+                    return
             return
         except requests.exceptions.RequestException:
             time.sleep(1)
@@ -193,12 +205,29 @@ def main() -> None:
     state.status = "running"
     thread = threading.Thread(target=stream_events, args=(args.server, state), daemon=True)
     thread.start()
+    stop_sent = False
 
     with Live(render(state), refresh_per_second=8) as live:
         while thread.is_alive():
-            live.update(render(state))
-            time.sleep(0.15)
+            try:
+                live.update(render(state))
+                time.sleep(0.15)
+            except KeyboardInterrupt:
+                if not stop_sent:
+                    stop_sent = True
+                    state.status = "stopping"
+                    state.set_current("Stopping agent and preparing a partial report...")
+                    try:
+                        resp = requests.post(f"{args.server}/sessions/{session_id}/stop")
+                        resp.raise_for_status()
+                    except requests.exceptions.RequestException as exc:
+                        state.status = "running"
+                        state.set_current(f"Unable to stop session: {exc}")
         live.update(render(state))
+    if state.report_ready:
+        response = requests.get(f"{args.server}/sessions/{session_id}/report")
+        response.raise_for_status()
+        Console().print(Markdown(response.text))
 
 
 if __name__ == "__main__":

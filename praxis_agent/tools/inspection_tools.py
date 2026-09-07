@@ -63,3 +63,34 @@ async def get_environment_metrics(
     (e.g. "did the app service's CPU spike while the database stayed flat?"). Omit `services`
     to default to every currently-running service in the environment."""
     return await execution_client.get_environment_metrics(environment_id, services=services, duration=duration, interval=interval)
+
+
+@tool
+@instrumented("run_load_test")
+async def run_load_test(
+    environment_id: str,
+    service: str,
+    endpoint: str,
+    method: str,
+    headers: dict[str, str],
+    body: dict,
+    hit_count: int,
+    timeout: int,
+    on_progress=None,
+) -> dict:
+    """Send `hit_count` concurrent requests to a service endpoint and return the completed
+    aggregate result. `endpoint` is a service-relative path such as "/health"; `timeout` is the
+    per-request timeout in seconds and must not exceed 60. Returns completion counts, status-code
+    distribution, and min/max/average latency in milliseconds. Use this for bounded concurrency
+    or load scenarios, then collect logs and metrics as needed."""
+    return await execution_client.run_load_test(
+        environment_id=environment_id,
+        service=service,
+        endpoint=endpoint,
+        method=method,
+        headers=headers,
+        body=body,
+        hit_count=hit_count,
+        timeout=timeout,
+        on_progress=on_progress,
+    )
