@@ -148,7 +148,10 @@ async def scope_environment(state: AgentState) -> dict:
         "and must never appear in services. Do not request standalone or independent databases. "
         "If the developer named a branch, add it to branch_services so it is started after "
         "provisioning. Include a repository only when the developer supplied an HTTPS URL and "
-        "exact revision. If an existing environment is supplied, services may be empty."
+        "exact revision. If an existing environment is supplied, services may be empty. Set "
+        "environment_required to false only when the goal is entirely about testing a hypothesis "
+        "against an already-running, fully external service via the Experiment API, with nothing "
+        "to start, stop, or modify locally — do not invent services to provision in that case."
     )
     planner = get_llm().with_structured_output(EnvironmentPlan, method="function_calling")
     plan: EnvironmentPlan = await planner.ainvoke(
@@ -179,6 +182,11 @@ async def provision_environment(state: AgentState) -> dict:
 
     services = plan.get("services") or []
     if not services:
+        if not plan.get("environment_required", True):
+            # Purely external target (e.g. an Experiment API run against a live third-party
+            # service) — nothing to provision, so skip straight past discovery to planning
+            # instead of escalating for an environment that was never supposed to exist.
+            return {}
         return {
             "messages": [
                 AIMessage(
@@ -209,7 +217,11 @@ async def provision_environment(state: AgentState) -> dict:
 
 
 def provision_router(state: AgentState) -> str:
-    return "discover_environment" if state.get("environment_id") else "escalate"
+    if state.get("environment_id"):
+        return "discover_environment"
+    if not _environment_plan(state).get("environment_required", True):
+        return "plan_experiments"
+    return "escalate"
 
 
 async def discover_environment(state: AgentState) -> dict:
@@ -253,12 +265,26 @@ async def plan_experiments(state: AgentState) -> dict:
         (state.get("messages") or []) + [HumanMessage(content=instruction)]
     )
     scenarios = [scenario.model_dump(mode="json") for scenario in plan.scenario_queue]
+    # run_previous_qa_flows is decided once, on the first plan_experiments pass of an
+    # investigation, and reused verbatim on every replan/scenario thereafter rather than being
+    # re-derived — otherwise a later replan could silently flip whether existing QA flows get
+    # (re-)triggered mid-investigation.
+    stored_flag = state.get("run_previous_qa_flows")
+    if stored_flag is None:
+        run_previous_qa_flows = (
+            plan.run_previous_qa_flows
+            if plan.run_previous_qa_flows is not None
+            else settings.default_run_previous_qa_flows
+        )
+    else:
+        run_previous_qa_flows = stored_flag
     _publish(
         EventType.HYPOTHESIS,
         {
             "hypothesis": plan.hypothesis,
             "plan_note": plan.plan_note,
             "scenario_count": len(scenarios),
+            "run_previous_qa_flows": run_previous_qa_flows,
         },
     )
     return {
@@ -266,11 +292,23 @@ async def plan_experiments(state: AgentState) -> dict:
         "hypothesis": plan.hypothesis,
         "scenario_queue": scenarios,
         "iteration_count": state.get("iteration_count", 0) + 1,
+        "run_previous_qa_flows": run_previous_qa_flows,
     }
 
 
 def plan_router(state: AgentState) -> str:
     return _workflow_node(state) if state.get("scenario_queue") else "escalate"
+
+
+def _experiment_api_instruction(state: AgentState) -> str:
+    flag = state.get("run_previous_qa_flows")
+    return (
+        f"To test a hypothesis against a live API, use run_experiment. run_previous_qa_flows is "
+        f"fixed at {flag} for this entire investigation — always pass exactly this value and "
+        "never re-derive it. When it is true, the Experiment API already triggers the target "
+        "service's existing QA flows as part of that same call, so do not call any other tool to "
+        "trigger those QA flows again."
+    )
 
 
 async def _run_next_scenario(
@@ -297,7 +335,8 @@ async def generic_experiment_workflow(state: AgentState) -> dict:
         "Set up only the documented environment state this scenario requires, execute its trigger, "
         "and leave evidence collection to the next node. You may use read-only code Q&A to "
         "understand the service, but must not call code_edit. Do not request external Mock Server "
-        "or standalone databases from the executor."
+        "or standalone databases from the executor. "
+        f"{_experiment_api_instruction(state)}"
     )
     return await _run_next_scenario(state, instruction, EXPERIMENT_TOOLS)
 
@@ -316,7 +355,8 @@ async def mock_contract_workflow(state: AgentState) -> dict:
         "caller-specific route to target=\"mock-server\"; no restart is needed. Otherwise point "
         "the wrapper at the external Mock Server through its discovered env/config setting and "
         "restart it if the setting changed. Trigger the wrapper using its supplied contract. "
-        "Never provision mock-server through the executor. Do not call code_edit."
+        "Never provision mock-server through the executor. Do not call code_edit. "
+        f"{_experiment_api_instruction(state)}"
     )
     return await _run_next_scenario(
         state, instruction, MOCK_CONTRACT_TOOLS, max_steps=MAX_MOCK_CONTRACT_TOOL_STEPS
@@ -333,7 +373,8 @@ async def performance_workflow(state: AgentState) -> dict:
         "endpoints; specify a service-relative path, request inputs, hit count, and a per-request "
         "timeout no greater than 60 seconds. Do not guess service ports or use localhost to reach "
         "another container. Establish the specified load; the next node will capture comparable "
-        "metrics and other evidence. Do not call code_edit."
+        "metrics and other evidence. Do not call code_edit. "
+        f"{_experiment_api_instruction(state)}"
     )
     return await _run_next_scenario(state, instruction, PERFORMANCE_TOOLS)
 
@@ -519,7 +560,11 @@ def build_graph():
     graph.add_conditional_edges(
         "provision_environment",
         provision_router,
-        {"discover_environment": "discover_environment", "escalate": "escalate"},
+        {
+            "discover_environment": "discover_environment",
+            "plan_experiments": "plan_experiments",
+            "escalate": "escalate",
+        },
     )
     graph.add_edge("discover_environment", "plan_experiments")
     graph.add_conditional_edges(

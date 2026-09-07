@@ -39,6 +39,10 @@ class AgentState(TypedDict, total=False):
     active_scenario: dict[str, Any]
     scenario_results: list[dict[str, Any]]
 
+    # Decided once during the first plan_experiments pass of an investigation and reused
+    # verbatim by every node that may call the Experiment API's run_experiment tool.
+    run_previous_qa_flows: Optional[bool]
+
     # experiment loop guards
     iteration_count: int
     max_iterations: int

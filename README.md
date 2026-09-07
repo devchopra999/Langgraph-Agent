@@ -156,12 +156,14 @@ traffic rather than the agent's higher-level tool-call view.
 ```bash
 python tests/test_routers.py            # pure routing-function unit tests
 python tests/test_execution_client.py    # mocked HTTP: supported executor request paths
+python tests/test_experiment_api.py      # mocked HTTP: Experiment API client/tool contract
 python tests/test_graph_happy_path.py    # mocked LLM: discovery -> generic evidence path
 python tests/test_graph_scenario_loop.py # mocked LLM: external mock-contract scenarios
 python tests/test_graph_explicit_fix.py  # mocked LLM: explicit fix -> deploy -> identical replay
 python tests/test_graph_escalate.py      # mocked LLM: budget-exhausted -> interrupt -> resume
+python tests/test_graph_experiment_flag.py # mocked LLM: run_previous_qa_flows decided once, reused across a replan
 ```
 
-All six are self-contained (fake LLM/mock HTTP, no live OpenAI/execution-service calls needed).
+All are self-contained (fake LLM/mock HTTP, no live OpenAI/execution-service calls needed).
 A real end-to-end run additionally needs a valid `OPENAI_API_KEY`
 and the execution service reachable at `EXECUTION_SERVICE_URL`.

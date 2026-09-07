@@ -24,6 +24,11 @@ def test_provision_router_requires_environment_before_discovery():
     assert provision_router({"environment_id": None}) == "escalate"
 
 
+def test_provision_router_skips_provisioning_for_purely_external_targets():
+    state = {"environment_id": None, "environment_plan": {"environment_required": False}}
+    assert provision_router(state) == "plan_experiments"
+
+
 def test_plan_router_uses_generic_fallback_and_escalates_without_safe_scenario():
     assert plan_router({"workflow": "generic_experiment", "scenario_queue": [{"name": "a"}]}) == "generic_experiment_workflow"
     assert plan_router({"workflow": "performance", "scenario_queue": [{"name": "a"}]}) == "performance_workflow"
@@ -68,6 +73,12 @@ def test_assessment_router_escalates_at_budget_limit():
             "max_iterations": 6,
         }
     ) == "escalate"
+
+
+def test_run_experiment_registered_in_every_scenario_execution_workflow():
+    assert "run_experiment" in {tool.name for tool in ALL_TOOLS}
+    for tools in (EXPERIMENT_TOOLS, MOCK_CONTRACT_TOOLS, PERFORMANCE_TOOLS):
+        assert "run_experiment" in {tool.name for tool in tools}
 
 
 if __name__ == "__main__":

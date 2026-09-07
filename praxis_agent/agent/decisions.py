@@ -57,6 +57,15 @@ class HypothesisPlan(BaseModel):
         ),
     )
     plan_note: str = Field(description="What the very next concrete action should be, in plain language.")
+    run_previous_qa_flows: bool = Field(
+        default=False,
+        description=(
+            "True only if the developer explicitly also wants the target service's existing QA "
+            "flows triggered by the same Experiment API call. Only consulted on the first "
+            "plan_experiments pass of an investigation; ignored on replans since the value is "
+            "decided once and reused thereafter."
+        ),
+    )
 
 
 class ExperimentScenario(BaseModel):
@@ -75,6 +84,15 @@ class EnvironmentPlan(BaseModel):
     services: list[str] = Field(
         default_factory=list,
         description="Minimal executor catalog services to provision. Never include an external mock server or databases.",
+    )
+    environment_required: bool = Field(
+        default=True,
+        description=(
+            "False only when the entire goal targets an already-running, fully external service "
+            "(nothing to start, stop, or modify locally) — e.g. testing a hypothesis against a "
+            "live external API via the Experiment API. True otherwise, including whenever any "
+            "services are requested."
+        ),
     )
     branch_services: list["ServiceBranch"] = Field(
         default_factory=list,
