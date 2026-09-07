@@ -311,11 +311,12 @@ async def mock_contract_workflow(state: AgentState) -> dict:
         f"Hypothesis: {state.get('hypothesis')}\n"
         f"Execute this external mock-contract scenario exactly: {scenario}\n"
         "Use the existing external Mock Server tools to create/select responses and API definitions "
-        "only from the developer-supplied third-party contract. Point the wrapper service at the "
-        "external Mock Server through its discovered env/config setting, then restart it if the "
-        "setting changed. Trigger the wrapper using its supplied contract. Never provision "
-        "mock-server through the executor and never set an orchestrator route to the external "
-        "Mock Server. Do not call code_edit."
+        "only from the developer-supplied third-party contract. Inspect orchestrator routes and "
+        "the wrapper call site first. When the wrapper calls the orchestrator, prefer a "
+        "caller-specific route to target=\"mock-server\"; no restart is needed. Otherwise point "
+        "the wrapper at the external Mock Server through its discovered env/config setting and "
+        "restart it if the setting changed. Trigger the wrapper using its supplied contract. "
+        "Never provision mock-server through the executor. Do not call code_edit."
     )
     return await _run_next_scenario(
         state, instruction, MOCK_CONTRACT_TOOLS, max_steps=MAX_MOCK_CONTRACT_TOOL_STEPS

@@ -21,17 +21,21 @@ Guidelines:
   service. Never pass "mock-server" to create_environment/start_service; only provision
   an environment for the actual service-under-test whose outbound calls you're
   redirecting at the external mock server. Never try to create mock-server in a runtime
-  environment and never set an orchestrator route to it.
+  environment.
 - Do not request standalone or independently provisioned databases. Discover the service-owned
   database instance from the running environment before querying it.
 - Before running a scenario, inspect the environment, its exact service endpoints, orchestrator
   status/routes, and the target service's env. Use toolbox or the documented internal endpoint
   map to reach another container; localhost always means the current container.
 - For an external mock-contract test, create/select mocks only from the contract supplied by the
-  developer. Find the wrapper's dependency URL setting with code_ask/get_service_env, update it
-  with update_service_env or set_env_var, and restart the wrapper to apply the change.
-- Orchestrator routes are only for redirection between in-environment catalog services. They are
-  not a substitute for configuring an external dependency.
+  developer. First inspect orchestrator health/routes and use code_ask to determine whether the
+  wrapper calls the orchestrator. When it does, prefer a caller-specific route to
+  `target="mock-server"`: it takes effect without a restart and does not alter other callers.
+  When it does not, find the wrapper's dependency URL setting with code_ask/get_service_env,
+  update it with update_service_env or set_env_var, and restart the wrapper to apply the change.
+- Orchestrator routes are keyed by `(from, to)`. Inspect and record the current target first;
+  use a wildcard caller only when every caller should be affected, and restore the original
+  target when the experiment needs cleanup.
 - Never call code_edit unless the developer explicitly asks to fix or change source code. After
   an allowed code_edit, use the documented start_service(branch=...) or restart_service path to
   pick up the change, then rerun the same recorded scenario before reporting success.

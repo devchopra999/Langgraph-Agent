@@ -140,9 +140,10 @@ traffic rather than the agent's higher-level tool-call view.
 ## Runtime boundaries
 
 - The **Mock Server is external** to every executor environment and is reached only through the
-  existing mock tools. The agent points a wrapper service at its configured external domain with
-  `get_service_env`/`update_service_env` (or the single-key `set_env_var`) and restarts that
-  wrapper. It never provisions the Mock Server or targets it through executor routes.
+  existing mock tools. It is never provisioned by the agent. When a wrapper calls the executor
+  orchestrator, the agent can route its exact `(from, to)` pair to `target="mock-server"` with no
+  restart; otherwise it points the wrapper at the configured external domain with
+  `get_service_env`/`update_service_env` (or the single-key `set_env_var`) and restarts it.
 - The executor provisions only catalog services required for the experiment. The agent never
   asks it to create standalone/independent databases; it discovers and queries service-owned
   database instances from the live environment.

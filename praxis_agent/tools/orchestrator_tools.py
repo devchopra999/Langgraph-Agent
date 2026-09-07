@@ -1,8 +1,8 @@
-"""Tools for inspecting and repointing in-environment service traffic via the orchestrator.
+"""Tools for inspecting and repointing traffic via the executor environment's orchestrator.
 
-Routes apply only to services inside the executor environment. The external Mock Server is not
-an orchestrator target; point services at it through their documented env/config setting and
-restart them instead. Route changes take effect on the next proxied request.
+Routes identify in-environment callers/destinations. Their targets can be another environment
+service or the executor's registered `mock-server` target, even though that Mock Server is managed
+externally through its own tools. Route changes take effect on the next proxied request.
 """
 from __future__ import annotations
 
@@ -45,11 +45,11 @@ async def get_orchestrator_route(environment_id: str, from_service: str, to_serv
 async def set_orchestrator_route(environment_id: str, from_service: str, to_service: str, target: str) -> dict:
     """Repoint calls from `from_service` to `to_service` at a different catalog service
     (`target`), instantly and with zero downtime — no restart needed, effective on the very next
-    request. Use from_service="*" to catch every caller of `to_service`. This is appropriate for
-    in-environment service redirection or A/B experiments; use service env/config for an
-    external dependency such as the Mock Server. `target` must be a valid HTTP-catalogued
-    service name. To point back at the real service later, call this again with the original
-    target — there is no separate revert/delete tool."""
+    request. Use from_service="*" to catch every caller of `to_service`, otherwise use the exact
+    caller to preserve isolation. This supports in-environment redirection, A/B experiments, and
+    routing a proxied external dependency to `target="mock-server"`. Inspect the current route
+    first and restore its original target after the experiment. `target` must be a valid executor
+    route target."""
     return await execution_client.set_orchestrator_route(environment_id, from_service, to_service, target)
 
 

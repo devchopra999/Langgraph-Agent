@@ -18,7 +18,8 @@ Use this for "reproduce this reported bug" or "quick hotfix testing" requests.
    Query only the service-owned database instance that discovery identifies.
 3. **If the bug involves an external dependency** (e.g. a third-party API returning something
    unexpected), see the `mock-based-testing` skill — mock the dependency rather than hitting
-   the real one.
+   the real one. When the caller already uses the environment orchestrator, a caller-specific
+   route to `target="mock-server"` changes only that caller and needs no restart.
 4. **Start the relevant branch when supplied.** If the developer identifies a branch that
    reproduces the issue, use `start_service(..., branch=...)` for deterministic reproduction.
 5. **Trigger the failing scenario** via `execute_command`.

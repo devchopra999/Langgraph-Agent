@@ -27,10 +27,9 @@ detect a memory leak.
    rather than one that rises then stabilizes under steady load (normal).
 4. **Correlate with logs** (`get_logs`) for GC pauses, thread pool exhaustion, or connection
    pool warnings around the same time window.
-5. **Correlate with the database** (`query_database` against a status/metrics table, or
-   `EXPLAIN`-style queries if supported) if CPU is high on a DB-backed service — a missing
-   index is a common root cause and shows up as high DB CPU with rising query latency.
-6. **After an explicitly requested code fix** (`code_edit` + documented `start_service` or
+5. **After an explicitly requested code fix** (`code_edit` + documented `start_service` or
    `restart_service`), repeat the exact same load + sampling window and compare the new time
    series against the earlier one to confirm the improvement, rather than eyeballing a single
    snapshot.
+6. end the scenario with a summary of the before/after metrics and logs, and whether the fix
+   improved the bottleneck or leak.
