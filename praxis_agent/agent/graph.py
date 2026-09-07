@@ -405,9 +405,7 @@ def assessment_router(state: AgentState) -> str:
         return "respond"
     if next_step == "diagnose" and state.get("fix_requested") and not state.get("remediation_attempted"):
         return "diagnose"
-    if next_step in {"next_scenario", "replan", "diagnose"} and state.get(
-        "iteration_count", 0
-    ) < state.get("max_iterations", settings.max_iterations):
+    if next_step in {"next_scenario", "replan", "diagnose"}:
         return "plan_experiments"
     return "escalate"
 

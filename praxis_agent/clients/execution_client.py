@@ -48,14 +48,16 @@ class ExecutionClient:
     # ------------------------------------------------------------------ #
     # low-level request helper
     # ------------------------------------------------------------------ #
-    async def _request(self, method: str, path: str, *, json: dict | None = None, params: dict | None = None) -> Any:
+    async def _request(
+        self, method: str, path: str, *, json: dict | None = None, params: dict | None = None, timeout: float | None = None
+    ) -> Any:
         url = f"{self.base_url}{path}"
         started = time.monotonic()
         status_code: int | None = None
         response_body: Any = None
         error: str | None = None
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout if timeout is not None else self._timeout) as client:
                 resp = await client.request(method, url, json=json, params=params)
             status_code = resp.status_code
             if resp.status_code >= 400:
@@ -203,6 +205,15 @@ class ExecutionClient:
         job = await self._run_job(restarted["jobId"], on_progress=on_progress)
         return {**restarted, "job": job}
 
+    async def rebuild_service(self, environment_id: str, service: str, *, on_progress: ProgressCallback = None, wait: bool = True) -> dict:
+        # Unlike restart, this rebuilds the image from the current checkout first, so it picks
+        # up in-place source edits (e.g. from aider) for compiled-language services.
+        rebuilt = await self._request("POST", f"/environments/{environment_id}/services/{service}/rebuild")
+        if not wait:
+            return rebuilt
+        job = await self._run_job(rebuilt["jobId"], on_progress=on_progress)
+        return {**rebuilt, "job": job}
+
     # ------------------------------------------------------------------ #
     # repository
     # ------------------------------------------------------------------ #
@@ -236,6 +247,28 @@ class ExecutionClient:
 
     async def get_service_endpoints(self, environment_id: str) -> dict:
         return await self._request("GET", f"/environments/{environment_id}/service-endpoints")
+
+    async def call_service_endpoint(
+        self,
+        environment_id: str,
+        service: str,
+        endpoint: str,
+        method: str = "GET",
+        headers: dict[str, str] | None = None,
+        body: Any = None,
+        timeout: int = 30,
+    ) -> dict:
+        if timeout < 1 or timeout > 60:
+            raise ValueError("call_service_endpoint timeout must be between 1 and 60 seconds")
+        payload: dict[str, Any] = {"endpoint": endpoint, "method": method}
+        if headers is not None:
+            payload["headers"] = headers
+        if body is not None:
+            payload["body"] = body
+        payload["timeout"] = timeout
+        return await self._request(
+            "POST", f"/environments/{environment_id}/services/{service}/request", json=payload
+        )
 
     async def get_service_env(self, environment_id: str, service: str) -> dict:
         return await self._request("GET", f"/environments/{environment_id}/services/{service}/env")
@@ -339,39 +372,86 @@ class ExecutionClient:
     async def list_orchestrator_routes(self, environment_id: str) -> list[dict]:
         return await self._request("GET", f"/environments/{environment_id}/orchestrator/routes")
 
-    async def get_orchestrator_route(self, environment_id: str, from_service: str, to_service: str) -> dict:
-        return await self._request(
-            "GET", f"/environments/{environment_id}/orchestrator/routes/{from_service}/{to_service}"
-        )
+    async def get_orchestrator_route(self, environment_id: str, source_service: str, destination_service: str) -> dict:
+        # Exact (sourceService, destinationService) lookup only, no wildcard fallback. Only the
+        # executor's explicit ORCHESTRATOR_ROUTE_NOT_FOUND is shimmed to {"found": False, "route":
+        # None} so callers can check absence without exception handling; unrelated errors propagate.
+        try:
+            return await self._request(
+                "GET", f"/environments/{environment_id}/orchestrator/routes/{source_service}/{destination_service}"
+            )
+        except ExecutionServiceError as exc:
+            if exc.code == "ORCHESTRATOR_ROUTE_NOT_FOUND":
+                return {"found": False, "route": None}
+            raise
+
+    @staticmethod
+    def _validate_points_to(points_to: str) -> None:
+        if not points_to or not points_to.strip():
+            raise ValueError("points_to must be a non-empty catalog service name")
+        if "://" in points_to:
+            raise ValueError('points_to must be a catalog service name (e.g. "mock-server"), never a URL')
 
     async def set_orchestrator_route(
-        self, environment_id: str, from_service: str, to_service: str, target: str
+        self, environment_id: str, source_service: str, destination_service: str, points_to: str
     ) -> dict:
+        self._validate_points_to(points_to)
         return await self._request(
             "PUT",
-            f"/environments/{environment_id}/orchestrator/routes/{from_service}/{to_service}",
-            json={"target": target},
+            f"/environments/{environment_id}/orchestrator/routes/{source_service}/{destination_service}",
+            json={"pointsTo": points_to},
         )
 
     async def bulk_set_orchestrator_routes(self, environment_id: str, routes: list[dict]) -> dict:
+        for route in routes:
+            self._validate_points_to(route.get("pointsTo", ""))
         return await self._request(
             "POST", f"/environments/{environment_id}/orchestrator/routes/bulk", json={"routes": routes}
         )
 
+    async def delete_orchestrator_route(self, environment_id: str, source_service: str, destination_service: str) -> dict:
+        return await self._request(
+            "DELETE", f"/environments/{environment_id}/orchestrator/routes/{source_service}/{destination_service}"
+        )
+
+    async def update_orchestrator_aliases(self, environment_id: str, aliases: dict[str, str]) -> dict:
+        return await self._request(
+            "PUT", f"/environments/{environment_id}/orchestrator/aliases", json={"aliases": aliases}
+        )
+
+    async def delete_orchestrator_alias(self, environment_id: str, host: str) -> dict:
+        return await self._request("DELETE", f"/environments/{environment_id}/orchestrator/aliases/{host}")
+
     # ------------------------------------------------------------------ #
     # code (aider)
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _validate_aider_timeout(timeout_ms: int) -> None:
+        if timeout_ms < 1 or timeout_ms > 1_800_000:
+            raise ValueError("timeout_ms must be between 1 and 1,800,000 (30 minutes)")
+
     async def code_ask(self, environment_id: str, service: str, prompt: str, timeout_ms: int | None = None) -> dict:
         body: dict[str, Any] = {"prompt": prompt}
         if timeout_ms is not None:
+            self._validate_aider_timeout(timeout_ms)
             body["timeoutMs"] = timeout_ms
-        return await self._request("POST", f"/environments/{environment_id}/services/{service}/code/ask", json=body)
+        # Give the HTTP transport enough headroom to outlast the executor's own aider timeout
+        # (plus a fixed buffer for round-trip/queueing) rather than the client's fixed default,
+        # since aider prompts can legitimately run for many minutes.
+        transport_timeout = max(self._timeout, (timeout_ms or 300_000) / 1000 + 30)
+        return await self._request(
+            "POST", f"/environments/{environment_id}/services/{service}/code/ask", json=body, timeout=transport_timeout
+        )
 
     async def code_edit(self, environment_id: str, service: str, prompt: str, timeout_ms: int | None = None) -> dict:
         body: dict[str, Any] = {"prompt": prompt}
         if timeout_ms is not None:
+            self._validate_aider_timeout(timeout_ms)
             body["timeoutMs"] = timeout_ms
-        return await self._request("POST", f"/environments/{environment_id}/services/{service}/code/edit", json=body)
+        transport_timeout = max(self._timeout, (timeout_ms or 300_000) / 1000 + 30)
+        return await self._request(
+            "POST", f"/environments/{environment_id}/services/{service}/code/edit", json=body, timeout=transport_timeout
+        )
 
 
 # Module-level singleton — stateless aside from base_url, safe to share.

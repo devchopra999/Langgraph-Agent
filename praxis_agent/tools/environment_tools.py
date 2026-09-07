@@ -91,6 +91,17 @@ async def restart_service(environment_id: str, service: str, on_progress=None) -
     return await execution_client.restart_service(environment_id, service, on_progress=on_progress)
 
 
+@tool
+@instrumented("rebuild_service")
+async def rebuild_service(environment_id: str, service: str, on_progress=None) -> dict:
+    """Build and deploy the existing edited service workspace without checking out a branch.
+    POSTs /environments/:id/services/:service/rebuild with NO body, then polls the returned
+    jobId until ready. Preserves job output/progress/errors; never falls back to start_service.
+    Use after code_edit and targeted tests. After readiness, inspect the retained source diff
+    and replay the original workload: a ready build alone does not prove the fix."""
+    return await execution_client.rebuild_service(environment_id, service, on_progress=on_progress)
+
+
 # @tool
 # @instrumented("attach_repository")
 # async def attach_repository(environment_id: str, url: str, commit: str, on_progress=None) -> dict:

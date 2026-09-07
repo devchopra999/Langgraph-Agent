@@ -11,25 +11,53 @@ Use this for "reproduce this reported bug" or "quick hotfix testing" requests.
 
 ## Steps
 
-1. **Scope the services.** From the bug description, select the minimal executor catalog
-   services needed. Do not request the external Mock Server or standalone databases.
-2. **Create and discover the environment.** Use `create_environment`, then inspect its status,
-   exact internal endpoints, orchestrator status, and the target service env before reproducing.
-   Query only the service-owned database instance that discovery identifies.
-3. **If the bug involves an external dependency** (e.g. a third-party API returning something
-   unexpected), see the `mock-based-testing` skill — mock the dependency rather than hitting
-   the real one. When the caller already uses the environment orchestrator, a caller-specific
-   route to `target="mock-server"` changes only that caller and needs no restart.
-4. **Start the relevant branch when supplied.** If the developer identifies a branch that
-   reproduces the issue, use `start_service(..., branch=...)` for deterministic reproduction.
-5. **Trigger the failing scenario** via `execute_command`.
-6. **Confirm the failure actually reproduces** via `get_logs`/`query_database` before touching
-   any code — don't assume; verify the "before" state matches the reported symptom.
-7. **Use `code_ask` to locate the responsible code** only after evidence supports a hypothesis.
-   Call `code_edit` only when the developer explicitly asks for a source change.
-8. **Deploy + restart** with `start_service` using the same branch when a source build is
-   needed, or `restart_service` otherwise, then **re-run the exact same trigger** from step 5.
-9. **Compare before/after**: same logs pattern gone, DB ends in the expected state, no new
-   errors introduced. Only then consider the hypothesis verified.
-10. For hotfix testing specifically: also re-run any adjacent scenarios (via the mock-based or
-    concurrency playbooks if relevant) to catch regressions the hotfix might introduce.
+1. **Scope and isolate.** Select the minimal executor catalog application services and use
+   `create_environment`. Provisioning, requests, fixtures, commands, and edits belong in that
+   isolated environment, never real production or host-side service access. Do not request the
+   global Mock Server or standalone databases. Select branches from runtime input/discovery,
+   not incident labels or demo defaults; use `start_service(..., branch=...)` for initial checkout.
+2. **Discover adaptively.** Inspect readiness, exact internal endpoints, app env, and
+   service-owned database inventory. Use `code_ask` to discover the selected branch's endpoint
+   methods, schemas, authentication/signing, dependencies, and existing test commands.
+   Playbook endpoint tables are hints, not authoritative contracts. Start discovered application
+   dependencies as needed. Observe each prerequisite result before constructing dependent calls;
+   do not guess tokens, fixture IDs, table names, or payloads.
+3. **Isolate external dependencies.** Follow `mock-based-testing` and `orchestrator-routing`.
+   Not every service uses the
+   orchestrator: fintech callers can make direct HTTP calls. Discover the actual client path.
+   A caller-specific `target="mock-server"` routes only proxied traffic to the authoritative
+   global server; direct clients require supported alias/configuration setup and proof of routing.
+4. **Prepare a trial.** Separate one-time checkout/routing from repeatable fixture setup.
+   Prefer `call_service_endpoint` for isolated auth and fixture APIs; use controlled database
+   seeding only against discovered service-owned databases when needed. Record valid credentials,
+   preconditions, unique fixture handles, database baselines, and explicit failure predicates.
+   Validate a serial control before using load or concurrency.
+5. **Trigger and observe.** Use `call_service_endpoint`, `run_load_test`, or
+   `execute_concurrent_requests` as appropriate; use bounded executor commands for other triggers.
+   Preserve response bodies/statuses, timestamps, exit codes, logs, DB changes, and relevant
+   overlapping metrics even when the request fails. An application 500 can reproduce the defect;
+   a tool success alone cannot prove it. Reconcile uncertain non-idempotent outcomes before retry.
+6. **Confirm and diagnose.** Compare evidence with the reported symptom before editing.
+   Pin the actual failing scenario and baseline independently of later controls. Correlate
+   runtime evidence with the branch code via `code_ask`; do not assume a predetermined cause.
+   Refine setup or hypotheses when observations differ, preserving what each trial establishes.
+7. **Respect intent.** Check/test/reproduce-only requests do not authorize source edits.
+   For an explicitly requested fix, use `code_edit` for the demonstrated cause and relevant
+   regression tests, then run the repository's discovered targeted tests through the executor.
+   No additional approval is needed for already authorized isolated remediation.
+8. **Rebuild edited source.** Use `rebuild_service`: the executor API is
+   `POST /environments/:id/services/:service/rebuild` with **no request body**, followed by
+   polling the returned job. Check readiness and that edited behavior is deployed. Never use
+   `start_service(branch=...)` after edits: a checkout can discard them. `restart_service` is
+   appropriate for supported env-only changes, not a substitute for a source rebuild.
+9. **Replay comparably.** Re-run the pinned failing workload with fresh equivalent fixtures or
+   a safely reset isolated baseline: same semantics, balances, sizes, concurrency, and assertions,
+   but new user/payment/reference IDs where old ones were consumed. Do not replay checkout or
+   mistake a previously completed payment's no-op for a fix. Include adjacent regression controls.
+10. **Assess honestly.** Compare original failure predicates, logs, database invariants, and
+    resource evidence before/after. A successful edit/build is not verification. Continue with
+    evidence-based next actions rather than an arbitrary scenario/remediation budget; keep every
+    request, load burst, command, and poll bounded. Recover discoverable prerequisites autonomously.
+    If no safe progress remains, report the genuine blocker or inconclusive result, not success
+    or a request for permission for "one more attempt." Retain the environment, source diff,
+    and evidence; restore owned temporary routing/mock/env mutations and report cleanup failures.

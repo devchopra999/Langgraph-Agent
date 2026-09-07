@@ -137,13 +137,37 @@ tail -f logs/api_calls.log | python -m json.tool --json-lines   # or just `tail 
 This is independent of the SSE event stream — useful when you want to see the exact wire
 traffic rather than the agent's higher-level tool-call view.
 
+## Orchestrator routing contract
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/environments/:id/orchestrator/routes` | — | `[{ sourceService, destinationService, pointsTo, updatedAt }, ...]` |
+| GET | `/environments/:id/orchestrator/routes/:sourceService/:destinationService` | — | `{ sourceService, destinationService, pointsTo, updatedAt }` — exact match only, no wildcard fallback. Use `*` as `:sourceService` to look up the wildcard route. 404 `ORCHESTRATOR_ROUTE_NOT_FOUND` if unregistered |
+| PUT | `/environments/:id/orchestrator/routes/:sourceService/:destinationService` | `{ pointsTo: "<catalog-service-name>" }` | `{ sourceService, destinationService, pointsTo, updatedAt }` |
+| POST | `/environments/:id/orchestrator/routes/bulk` | `{ routes: [{ sourceService, destinationService, pointsTo }, ...] }` | `{ registered: [{ sourceService, destinationService, pointsTo, updatedAt }, ...], errors: [...] }` |
+| DELETE | `/environments/:id/orchestrator/routes/:sourceService/:destinationService` | — | 204, or 404 `ORCHESTRATOR_ROUTE_NOT_FOUND` |
+
+**Field semantics**:
+- `sourceService` — the caller (a logical/catalog name, or `*` for "any caller without an explicit override").
+- `destinationService` — the logical destination being intercepted (a real catalog service name like `"edi"`, or an arbitrary logical alias name like `"axis-api"`/`"payment-gateway"` used with header-injector aliases). Together with `sourceService` this is the route's identifying key.
+- `pointsTo` — where that `(sourceService, destinationService)` edge currently sends traffic. Always a catalog service name (e.g. `"mock-server"`), **never a raw URL**, in both requests and responses.
+
+**Example**:
+```bash
+curl -s -X PUT http://localhost:3000/environments/env-abc123/orchestrator/routes/mob/edi \
+  -H 'Content-Type: application/json' \
+  -d '{"pointsTo":"mock-server"}'
+# => {"sourceService":"mob","destinationService":"edi","pointsTo":"mock-server","updatedAt":"2026-09-08T..."}
+```
+
 ## Runtime boundaries
 
 - The **Mock Server is external** to every executor environment and is reached only through the
   existing mock tools. It is never provisioned by the agent. When a wrapper calls the executor
-  orchestrator, the agent can route its exact `(from, to)` pair to `target="mock-server"` with no
-  restart; otherwise it points the wrapper at the configured external domain with
-  `get_service_env`/`update_service_env` (or the single-key `set_env_var`) and restarts it.
+  orchestrator, the agent can route its exact `(sourceService, destinationService)` pair to
+  `pointsTo="mock-server"` with no restart; otherwise it points the wrapper at the configured
+  external domain with `get_service_env`/`update_service_env` (or the single-key `set_env_var`)
+  and restarts it.
 - The executor provisions only catalog services required for the experiment. The agent never
   asks it to create standalone/independent databases; it discovers and queries service-owned
   database instances from the live environment.

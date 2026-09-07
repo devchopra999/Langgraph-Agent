@@ -59,12 +59,23 @@ def test_load_test_is_available_only_to_performance_workflow():
     assert "run_load_test" not in {tool.name for tool in MOCK_CONTRACT_TOOLS}
 
 
-def test_assessment_router_escalates_at_budget_limit():
+def test_assessment_router_never_caps_on_iteration_budget():
+    # The iteration budget no longer force-escalates; only an explicit "escalate"
+    # assessment does. Even at/above the configured max_iterations, replan/next_scenario/
+    # diagnose (without a fix request) keep looping back to plan_experiments.
     assert assessment_router(
         {
             "scenario_queue": [],
             "assessment_next_step": "replan",
             "iteration_count": 6,
+            "max_iterations": 6,
+        }
+    ) == "plan_experiments"
+    assert assessment_router(
+        {
+            "scenario_queue": [],
+            "assessment_next_step": "escalate",
+            "iteration_count": 1,
             "max_iterations": 6,
         }
     ) == "escalate"

@@ -8,11 +8,13 @@ from praxis_agent.tools.environment_tools import (
     delete_environment,
     get_environment,
     get_service_endpoints,
+    rebuild_service,
     restart_service,
     start_service,
     stop_service,
 )
 from praxis_agent.tools.inspection_tools import (
+    call_service_endpoint,
     execute_command,
     get_environment_metrics,
     get_logs,
@@ -39,10 +41,13 @@ from praxis_agent.tools.mock_tools import (
 )
 from praxis_agent.tools.orchestrator_tools import (
     bulk_set_orchestrator_routes,
+    delete_orchestrator_alias,
+    delete_orchestrator_route,
     get_orchestrator_route,
     get_orchestrator_status,
     list_orchestrator_routes,
     set_orchestrator_route,
+    update_orchestrator_aliases,
 )
 from praxis_agent.tools.skill_tools import list_skills, load_skill
 
@@ -53,6 +58,7 @@ ENVIRONMENT_TOOLS = [
     start_service,
     stop_service,
     restart_service,
+    rebuild_service,
     get_service_endpoints,
 ]
 
@@ -68,6 +74,7 @@ DISCOVERY_TOOLS = [
 
 INSPECTION_TOOLS = [
     get_logs,
+    call_service_endpoint,
     query_database,
     execute_command,
     get_service_metrics,
@@ -104,6 +111,9 @@ ORCHESTRATOR_TOOLS = [
     get_orchestrator_route,
     set_orchestrator_route,
     bulk_set_orchestrator_routes,
+    delete_orchestrator_route,
+    update_orchestrator_aliases,
+    delete_orchestrator_alias,
 ]
 
 ALL_TOOLS = (
@@ -120,15 +130,18 @@ ALL_TOOLS = (
 # Nodes use these focused collections rather than granting every capability in every phase.
 EVIDENCE_TOOLS = [get_logs, query_database, get_service_metrics, get_environment_metrics, get_environment]
 EXPERIMENT_TOOLS = (
-    [start_service, stop_service, restart_service]
+    [start_service, stop_service, restart_service, rebuild_service]
     + INSPECTION_TOOLS
     + [code_ask]
     + CONFIG_TOOLS
     + ORCHESTRATOR_TOOLS
     + SKILL_TOOLS
+    + MOCK_TOOLS
 )
-MOCK_CONTRACT_TOOLS = EXPERIMENT_TOOLS + MOCK_TOOLS
+# Every workflow node shares this same base (mock tools included), so create_mock_api and
+# friends are always available regardless of case classification.
+MOCK_CONTRACT_TOOLS = EXPERIMENT_TOOLS
 PERFORMANCE_TOOLS = EXPERIMENT_TOOLS + [run_load_test]
 DIAGNOSIS_TOOLS = [code_ask]
 EDIT_TOOLS = [code_edit]
-DEPLOY_TOOLS = [start_service, restart_service]
+DEPLOY_TOOLS = [start_service, restart_service, rebuild_service]

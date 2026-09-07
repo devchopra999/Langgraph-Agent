@@ -2,7 +2,7 @@
 execution, and CPU/memory metrics."""
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from langchain_core.tools import tool
 
@@ -17,6 +17,30 @@ async def get_logs(environment_id: str, service: str, tail: Optional[int] = 200,
     `since` (ISO timestamp) to fetch only logs after a point in time — e.g. right before you
     triggered a reproduction step, so you only look at the relevant window."""
     return await execution_client.get_logs(environment_id, service, tail=tail, since=since)
+
+
+@tool
+@instrumented("call_service_endpoint")
+async def call_service_endpoint(
+    environment_id: str,
+    service: str,
+    endpoint: str,
+    method: str = "GET",
+    headers: Optional[dict[str, str]] = None,
+    body: Any = None,
+    timeout: int = 30,
+) -> dict:
+    """Send a single HTTP request straight to a running service inside an environment and
+    return its response synchronously. `endpoint` is a service-relative path (e.g. "/users/1");
+    `timeout` is the max seconds to wait for the service to respond before the call itself
+    times out, and must be 1-60. Returns `targetUrl` (the resolved absolute URL that was
+    actually called), `method`, `statusCode`, response `headers`, response `body`, and
+    `durationMs`. Use this to reproduce or verify a single request/response interaction
+    against a service - e.g. checking a bug fix or an auth flow - without spinning up a full
+    load test."""
+    return await execution_client.call_service_endpoint(
+        environment_id, service, endpoint, method=method, headers=headers, body=body, timeout=timeout
+    )
 
 
 @tool
