@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Praxis Lens Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- React 18 (CDN, no build step) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+    <!-- Markdown rendering for the final execution report -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <script type="text/babel" data-presets="react">
+        const { useState, useRef, useEffect, useCallback } = React;
+
+        // Every event type the agent graph can publish (praxis_agent/agent/events.py::EventType).
+        // EventSource requires an explicit listener per named "event:" the server sends, so this
+        // list must stay in sync with that module.
+        const ALL_EVENT_TYPES = [
+            'agent_thought', 'case_classified', 'hypothesis', 'tool_call_started', 'tool_call_completed',
+            'tool_call_failed', 'operation_rejected', 'operation_repaired', 'model_call_started',
+            'model_call_completed', 'model_call_failed', 'job_progress', 'skill_loaded', 'scenario_started',
+            'scenario_completed', 'verify_result', 'escalation', 'run_completed', 'run_stopped',
+            'report_ready', 'error',
+        ];
+
+        const ICON_PATHS = {
+            bot: <React.Fragment><rect x="4" y="8" width="16" height="10" rx="2" /><circle cx="9" cy="13" r="1" /><circle cx="15" cy="13" r="1" /><line x1="12" y1="8" x2="12" y2="4" /><circle cx="12" cy="3" r="1" /></React.Fragment>,
+            hash: <React.Fragment><line x1="4" y1="9" x2="20" y2="9" /><line x1="4" y1="15" x2="20" y2="15" /><line x1="10" y1="3" x2="8" y2="21" /><line x1="16" y1="3" x2="14" y2="21" /></React.Fragment>,
+            play: <polygon points="6 3 20 12 6 21 6 3" />,
+            pause: <React.Fragment><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></React.Fragment>,
+            x: <React.Fragment><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></React.Fragment>,
+            send: <React.Fragment><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></React.Fragment>,
+            terminal: <React.Fragment><rect x="3" y="4" width="18" height="16" rx="2" /><polyline points="7 9 10 12 7 15" /><line x1="12" y1="15" x2="16" y2="15" /></React.Fragment>,
+            fileText: <React.Fragment><path d="M6 2h8l5 5v15H6z" /><line x1="9" y1="13" x2="15" y2="13" /><line x1="9" y1="17" x2="15" y2="17" /></React.Fragment>,
+            alertTriangle: <React.Fragment><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></React.Fragment>,
+            inbox: <React.Fragment><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></React.Fragment>,
+            check: <polyline points="20 6 9 17 4 12" />,
+            copy: <React.Fragment><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></React.Fragment>,
+            lightbulb: <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3 11c.6.5 1 1.2 1 2h4c0-.8.4-1.5 1-2a6 6 0 0 0-3-11z" />,
+            wrench: <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.3 2.3-2-2z" />,
+            book: <React.Fragment><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></React.Fragment>,
+            clock: <React.Fragment><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 15" /></React.Fragment>,
+        };
+
+        function Icon({ name, size = 16, strokeWidth = 2, style }) {
+            return (
+                <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" style={style}>
+                    {ICON_PATHS[name] || null}
+                </svg>
+            );
+        }
+
+        function truncate(value, max) {
+            const str = value === null || value === undefined ? '' : String(value);
+            return str.length > max ? `${str.slice(0, max - 1)}…` : str;
+        }
+
+        // Renders a tool's args compactly, e.g. "(service=mob, environment_id=env-123)".
+        function formatArgs(args) {
+            if (!args || typeof args !== 'object') return '';
+            const parts = Object.entries(args).map(([k, v]) => `${k}=${truncate(v, 60)}`);
+            return parts.length ? ` (${parts.join(', ')})` : '';
+        }
+
+        // Mirrors praxis_agent/agent/reports.py::_event_description and the TUI's _format_event,
+        // so the web console reads the same way the terminal UI and the final report do.
+        function describeEvent(type, payload) {
+            payload = payload || {};
+            switch (type) {
+                case 'agent_thought':
+                    if (payload.stage === 'acting') {
+                        return `${payload.reason || ''} (calling ${(payload.tools || []).join(', ')})`;
+                    }
+                    return payload.summary || payload.reason || 'Agent planning update.';
+                case 'case_classified':
+                    return `Classified case: ${payload.case_type} (workflow: ${payload.workflow}, scenario iteration: ${payload.needs_scenario_iteration})`;
+                case 'hypothesis':
+                    return `Hypothesis: ${payload.hypothesis}`;
+                case 'tool_call_started':
+                    return null; // surfaced as the "current action" line instead
+                case 'tool_call_completed':
+                    return `${payload.tool}${formatArgs(payload.args)} — ${payload.reason || ''}\n→ ${truncate(payload.result_preview, 240)}`;
+                case 'tool_call_failed':
+                    return `${payload.tool}${formatArgs(payload.args)} failed — ${payload.error} (reason: ${payload.reason})`;
+                case 'operation_rejected': {
+                    const err = payload.error;
+                    const msg = err && typeof err === 'object' ? err.message : err;
+                    return `Rejected planned \`${payload.tool}\` operation: ${msg}`;
+                }
+                case 'operation_repaired':
+                    return `Validation-guided retry of \`${payload.tool}\` ${payload.succeeded ? 'succeeded' : 'did not succeed'}`;
+                case 'model_call_started':
+                    return null; // surfaced as the "current action" line instead
+                case 'model_call_completed':
+                    return `Model decision for ${payload.phase} completed in ${((payload.duration_ms || 0) / 1000).toFixed(1)}s`;
+                case 'model_call_failed':
+                    return `Model decision for ${payload.phase} failed: ${payload.error}`;
+                case 'job_progress':
+                    return `… ${payload.step}`;
+                case 'skill_loaded':
+                    return `Loaded skill: ${payload.name}`;
+                case 'scenario_started':
+                    return `Started scenario: ${(payload.scenario && payload.scenario.name) || payload.scenario || 'unnamed'}`;
+                case 'scenario_completed':
+                    return `Scenario outcome (${payload.passed === true ? 'PASS' : payload.passed === false ? 'FAIL' : '?'}): ${payload.summary}`;
+                case 'verify_result':
+                    return `Verify: ${payload.confirmed ? 'confirmed' : 'denied'} — ${payload.reasoning}`;
+                case 'escalation':
+                    return "Escalating to you — the agent couldn't confirm a fix within its iteration budget.";
+                case 'run_completed':
+                    return `Done: ${payload.final_answer}`;
+                case 'run_stopped':
+                    return `Stopped: ${payload.reason || 'stopped by user.'}`;
+                case 'error':
+                    return `Run failed: ${payload.error}`;
+                case 'report_ready':
+                    return `Report ready (outcome: ${payload.outcome}).`;
+                default:
+                    return `${type}: ${truncate(JSON.stringify(payload), 200)}`;
+            }
+        }
+
+        // Icon + color used for each event type's log line; anything unlisted falls back to 'terminal'/dim.
+        const EVENT_STYLE = {
+            agent_thought: ['bot', 'dim'],
+            case_classified: ['hash', 'info'],
+            hypothesis: ['lightbulb', 'warn'],
+            tool_call_completed: ['check', 'success'],
+            tool_call_failed: ['x', 'danger'],
+            operation_rejected: ['alertTriangle', 'warn'],
+            operation_repaired: ['wrench', 'info'],
+            model_call_failed: ['alertTriangle', 'danger'],
+            job_progress: ['clock', 'dim'],
+            skill_loaded: ['book', 'info'],
+            scenario_started: ['play', 'info'],
+            scenario_completed: ['check', 'success'],
+            verify_result: ['check', 'info'],
+            escalation: ['inbox', 'warn'],
+            run_completed: ['check', 'success'],
+            run_stopped: ['pause', 'warn'],
+            report_ready: ['fileText', 'success'],
+            error: ['alertTriangle', 'danger'],
+        };
+
+        const STATUS_LABEL = {
+            running: 'Running', stopping: 'Stopping', waiting_input: 'Waiting for input',
+            completed: 'Completed', stopped: 'Stopped', failed: 'Failed',
+        };
+
+        function StatusBadge({ status }) {
+            if (!status) return null;
+            return <span className={`status-badge status-${status}`}>{STATUS_LABEL[status] || status}</span>;
+        }
+
+        function LogLine({ entry }) {
+            const [icon, tone] = EVENT_STYLE[entry.type] || ['terminal', 'dim'];
+            const time = new Date(entry.ts * 1000).toLocaleTimeString();
+            return (
+                <div className={`log-line tone-${tone}`}>
+                    <span className="log-icon"><Icon name={icon} size={14} /></span>
+                    <span className="log-time">{time}</span>
+                    <span className="log-text">{entry.text}</span>
+                </div>
+            );
+        }
+
+        function App() {
+            const [goal, setGoal] = useState('');
+            const [attachId, setAttachId] = useState('');
+            const [sessionId, setSessionId] = useState(null);
+            const [status, setStatus] = useState(null);
+            const [events, setEvents] = useState([]);
+            const [currentAction, setCurrentAction] = useState(null);
+            const [starting, setStarting] = useState(false);
+            const [startError, setStartError] = useState(null);
+            const [replyText, setReplyText] = useState('');
+            const [sending, setSending] = useState(false);
+            const [report, setReport] = useState(null);
+            const [copyOk, setCopyOk] = useState(false);
+
+            const esRef = useRef(null);
+            const seenKeys = useRef(new Set());
+            const logEndRef = useRef(null);
+
+            useEffect(() => {
+                logEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            }, [events, currentAction]);
+
+            const fetchReport = useCallback((id) => {
+                fetch(`/sessions/${id}/report?format=markdown`)
+                    .then((res) => (res.ok ? res.text() : Promise.reject(new Error(`${res.status}`))))
+                    .then((text) => setReport(text))
+                    .catch(() => setReport(null));
+            }, []);
+
+            const subscribe = useCallback((id) => {
+                if (esRef.current) esRef.current.close();
+                seenKeys.current = new Set();
+                const source = new EventSource(`/sessions/${id}/events`);
+                esRef.current = source;
+
+                ALL_EVENT_TYPES.forEach((type) => {
+                    source.addEventListener(type, (raw) => {
+                        let event;
+                        try { event = JSON.parse(raw.data); } catch { return; }
+                        const key = `${event.type}-${event.ts}`;
+                        // The event bus replays full history to every new subscriber (including on
+                        // browser-initiated SSE reconnects), so de-dupe on (type, ts).
+                        if (seenKeys.current.has(key)) return;
+                        seenKeys.current.add(key);
+
+                        const payload = event.payload || {};
+                        if (type === 'tool_call_started') {
+                            setCurrentAction(`Running ${payload.tool}${formatArgs(payload.args)}…`);
+                        } else if (type === 'model_call_started') {
+                            setCurrentAction(`Thinking (${payload.phase})…`);
+                        }
+                        if (['tool_call_completed', 'tool_call_failed', 'model_call_completed', 'model_call_failed'].includes(type)) {
+                            setCurrentAction(null);
+                        }
+
+                        const text = describeEvent(type, payload);
+                        if (text) {
+                            setEvents((prev) => [...prev, { id: key, type, text, ts: event.ts }]);
+                        }
+
+                        if (type === 'escalation') setStatus('waiting_input');
+                        if (type === 'run_completed') { setStatus('completed'); setCurrentAction(null); }
+                        if (type === 'run_stopped') { setStatus('stopped'); setCurrentAction(null); }
+                        if (type === 'error') { setStatus('failed'); setCurrentAction(null); }
+                        if (type === 'report_ready') {
+                            setStatus(payload.outcome || 'completed');
+                            setCurrentAction(null);
+                            fetchReport(id);
+                        }
+                    });
+                });
+            }, [fetchReport]);
+
+            const resetToStart = () => {
+                if (esRef.current) { esRef.current.close(); esRef.current = null; }
+                setSessionId(null); setStatus(null); setEvents([]); setCurrentAction(null);
+                setReport(null); setGoal(''); setReplyText(''); setStartError(null);
+            };
+
+            const startSession = async () => {
+                if (!goal.trim() || starting) return;
+                setStarting(true); setStartError(null);
+                try {
+                    const res = await fetch('/sessions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ goal }),
+                    });
+                    if (!res.ok) throw new Error(`Server responded ${res.status}`);
+                    const data = await res.json();
+                    setSessionId(data.sessionId);
+                    setStatus(data.status || 'running');
+                    subscribe(data.sessionId);
+                } catch (err) {
+                    setStartError(`Could not start session: ${err.message}`);
+                } finally {
+                    setStarting(false);
+                }
+            };
+
+            const attachSession = async () => {
+                const id = attachId.trim();
+                if (!id || starting) return;
+                setStarting(true); setStartError(null);
+                try {
+                    const res = await fetch(`/sessions/${id}`);
+                    if (!res.ok) throw new Error(res.status === 404 ? 'Session not found' : `Server responded ${res.status}`);
+                    const data = await res.json();
+                    setSessionId(data.sessionId);
+                    setStatus(data.status);
+                    setGoal(data.goal || '');
+                    subscribe(data.sessionId);
+                    if (['completed', 'stopped', 'failed'].includes(data.status)) fetchReport(data.sessionId);
+                } catch (err) {
+                    setStartError(`Could not attach: ${err.message}`);
+                } finally {
+                    setStarting(false);
+                }
+            };
+
+            const stopSession = async () => {
+                if (!sessionId) return;
+                await fetch(`/sessions/${sessionId}/stop`, { method: 'POST' }).catch(() => {});
+            };
+
+            const sendReply = async () => {
+                if (!sessionId || !replyText.trim() || sending) return;
+                setSending(true);
+                try {
+                    await fetch(`/sessions/${sessionId}/message`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: replyText }),
+                    });
+                    setReplyText('');
+                    setStatus('running');
+                    setReport(null);
+                } finally {
+                    setSending(false);
+                }
+            };
+
+            const copySessionId = () => {
+                if (!sessionId) return;
+                navigator.clipboard?.writeText(sessionId).then(() => {
+                    setCopyOk(true);
+                    setTimeout(() => setCopyOk(false), 1200);
+                });
+            };
+
+            const isActive = status === 'running' || status === 'stopping';
+            const canFollowUp = ['waiting_input', 'completed', 'stopped'].includes(status);
+
+            return (
+                <div className="app">
+                    <header>
+                        <div className="header-left">
+                            <div className="header-icon"><Icon name="bot" size={24} /></div>
+                            <div>
+                                <h1>Praxis Lens</h1>
+                                <div className="subtitle">Autonomous debugging agent — session console</div>
+                            </div>
+                        </div>
+                        {sessionId && (
+                            <div className="header-right">
+                                <StatusBadge status={status} />
+                                <button className="session-id" onClick={copySessionId} title="Copy session id">
+                                    <Icon name={copyOk ? 'check' : 'copy'} size={13} /> {sessionId}
+                                </button>
+                            </div>
+                        )}
+                    </header>
+
+                    {!sessionId && (
+                        <section className="card start-card">
+                            <h2>Start a debugging session</h2>
+                            <p className="hint">Describe the issue or goal — the agent investigates autonomously via the
+                                LangGraph orchestrator and may pause to ask you a question.</p>
+                            <textarea
+                                rows={4}
+                                placeholder="e.g. Reproduce the intermittent EDI/Axis timeout under load"
+                                value={goal}
+                                onChange={(e) => setGoal(e.target.value)}
+                            />
+                            {startError && <div className="error-banner"><Icon name="alertTriangle" size={14} /> {startError}</div>}
+                            <div className="actions-row">
+                                <button className="btn primary" disabled={!goal.trim() || starting} onClick={startSession}>
+                                    <Icon name="play" size={14} /> {starting ? 'Starting…' : 'Start session'}
+                                </button>
+                            </div>
+                            <details className="attach-details">
+                                <summary>Attach to an existing session</summary>
+                                <div className="attach-row">
+                                    <input
+                                        placeholder="session-abc123"
+                                        value={attachId}
+                                        onChange={(e) => setAttachId(e.target.value)}
+                                    />
+                                    <button className="btn" disabled={!attachId.trim() || starting} onClick={attachSession}>Attach</button>
+                                </div>
+                            </details>
+                        </section>
+                    )}
+
+                    {sessionId && (
+                        <section className="card goal-card">
+                            <div className="goal-label">Goal</div>
+                            <div className="goal-text">{goal || '—'}</div>
+                        </section>
+                    )}
+
+                    {sessionId && (
+                        <section className="card log-card">
+                            <div className="log-header">
+                                <h2><Icon name="terminal" size={16} /> Live activity</h2>
+                                <div className="log-actions">
+                                    {isActive && (
+                                        <button className="btn danger small" onClick={stopSession}>
+                                            <Icon name="pause" size={13} /> Stop
+                                        </button>
+                                    )}
+                                    <button className="btn small" onClick={resetToStart}>
+                                        <Icon name="x" size={13} /> New session
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="log-panel">
+                                {events.length === 0 && !currentAction && <div className="log-empty">Waiting for the agent to start…</div>}
+                                {events.map((entry) => <LogLine key={entry.id} entry={entry} />)}
+                                {currentAction && (
+                                    <div className="log-line tone-dim current-action">
+                                        <span className="spinner" />
+                                        <span className="log-text">{currentAction}</span>
+                                    </div>
+                                )}
+                                <div ref={logEndRef} />
+                            </div>
+                        </section>
+                    )}
+
+                    {sessionId && status === 'waiting_input' && (
+                        <section className="card reply-card highlight">
+                            <h2><Icon name="inbox" size={16} /> The agent needs your input</h2>
+                            <textarea
+                                rows={3}
+                                placeholder="Type your answer…"
+                                value={replyText}
+                                onChange={(e) => setReplyText(e.target.value)}
+                            />
+                            <div className="actions-row">
+                                <button className="btn primary" disabled={!replyText.trim() || sending} onClick={sendReply}>
+                                    <Icon name="send" size={14} /> {sending ? 'Sending…' : 'Send reply'}
+                                </button>
+                            </div>
+                        </section>
+                    )}
+
+                    {sessionId && canFollowUp && status !== 'waiting_input' && (
+                        <section className="card reply-card">
+                            <h2>Continue the conversation</h2>
+                            <textarea
+                                rows={2}
+                                placeholder="Ask a follow-up or give the agent a new goal…"
+                                value={replyText}
+                                onChange={(e) => setReplyText(e.target.value)}
+                            />
+                            <div className="actions-row">
+                                <button className="btn primary" disabled={!replyText.trim() || sending} onClick={sendReply}>
+                                    <Icon name="send" size={14} /> {sending ? 'Sending…' : 'Send'}
+                                </button>
+                            </div>
+                        </section>
+                    )}
+
+                    {report && (
+                        <section className="card report-card">
+                            <div className="log-header">
+                                <h2><Icon name="fileText" size={16} /> Execution report</h2>
+                                <div className="log-actions">
+                                    <a className="btn small" href={`/sessions/${sessionId}/report?format=markdown`} download>Download .md</a>
+                                    <a className="btn small" href={`/sessions/${sessionId}/report?format=json`} download>Download .json</a>
+                                </div>
+                            </div>
+                            <div
+                                className="report-body"
+                                dangerouslySetInnerHTML={{ __html: window.marked ? window.marked.parse(report) : report }}
+                            />
+                        </section>
+                    )}
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
