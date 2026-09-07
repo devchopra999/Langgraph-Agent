@@ -11,15 +11,19 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from praxis_agent.agent.events import new_id, registry
 from praxis_agent.agent.runner import send_message, sessions, start_session, stop_session
+
+PUBLIC_DIR = Path(__file__).resolve().parent.parent.parent / "public"
 
 app = FastAPI(title="Praxis Lens Agent")
 
@@ -102,3 +106,9 @@ async def stream_events(session_id: str):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# Mounted last so it never shadows the API routes above: Starlette matches routes in
+# registration order, and this Mount's prefix ("/") would otherwise catch everything.
+# `html=True` serves public/index.html for "/" and any other unmatched path.
+app.mount("/", StaticFiles(directory=PUBLIC_DIR, html=True), name="public")
