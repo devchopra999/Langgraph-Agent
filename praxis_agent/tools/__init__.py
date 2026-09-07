@@ -12,6 +12,7 @@ from praxis_agent.tools.environment_tools import (
     start_service,
     stop_service,
 )
+from praxis_agent.tools.experiment_tools import run_experiment
 from praxis_agent.tools.inspection_tools import (
     execute_command,
     get_environment_metrics,
@@ -106,6 +107,10 @@ ORCHESTRATOR_TOOLS = [
     bulk_set_orchestrator_routes,
 ]
 
+# The single tool wrapping the Experiment API (POST /api/v1/experiment). Registered in every
+# workflow node below so any scenario execution phase can test a hypothesis against a live API.
+EXPERIMENT_API_TOOLS = [run_experiment]
+
 ALL_TOOLS = (
     ENVIRONMENT_TOOLS
     + INSPECTION_TOOLS
@@ -115,6 +120,7 @@ ALL_TOOLS = (
     + MOCK_TOOLS
     + SKILL_TOOLS
     + ORCHESTRATOR_TOOLS
+    + EXPERIMENT_API_TOOLS
 )
 
 # Nodes use these focused collections rather than granting every capability in every phase.
@@ -126,6 +132,7 @@ EXPERIMENT_TOOLS = (
     + CONFIG_TOOLS
     + ORCHESTRATOR_TOOLS
     + SKILL_TOOLS
+    + EXPERIMENT_API_TOOLS
 )
 MOCK_CONTRACT_TOOLS = EXPERIMENT_TOOLS + MOCK_TOOLS
 PERFORMANCE_TOOLS = EXPERIMENT_TOOLS + [run_load_test]

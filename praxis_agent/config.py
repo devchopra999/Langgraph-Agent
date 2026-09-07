@@ -48,6 +48,15 @@ class Settings:
     execution_service_url: str = os.environ.get("EXECUTION_SERVICE_URL", "http://localhost:3000").rstrip("/")
     mock_server_url: str = os.environ.get("MOCK_SERVER_URL", "").rstrip("/")
 
+    # Experiment API is served by the same backend as the execution service unless overridden.
+    experiment_api_base_url: str = os.environ.get("EXPERIMENT_API_BASE_URL", execution_service_url).rstrip("/")
+    experiment_api_timeout_sec: float = float(os.environ.get("PRAXIS_EXPERIMENT_API_TIMEOUT_SEC", "120"))
+    # No documented default for runPreviousQaFlows exists anywhere in the API contract, so this
+    # is purely an explicit local fallback for when a developer's request doesn't say either way.
+    default_run_previous_qa_flows: bool = (
+        os.environ.get("EXPERIMENT_API_DEFAULT_RUN_PREVIOUS_QA_FLOWS", "false").strip().lower() == "true"
+    )
+
     # FastAPI server
     host: str = os.environ.get("PRAXIS_AGENT_HOST", "0.0.0.0")
     port: int = _int_env("PRAXIS_AGENT_PORT", 8000)
